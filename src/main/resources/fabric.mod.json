@@ -19,6 +19,9 @@
 			"gavinx.temperatureapi.TemperatureApiClient"
 		]
 	},
+	"mixins": [
+		"temperatureapi.mixins.json"
+	],
 
 	"depends": {
 		"fabricloader": ">=0.14.21",

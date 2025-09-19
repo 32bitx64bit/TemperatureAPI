@@ -4,6 +4,8 @@ import gavinx.temperatureapi.api.biome.BiomeAPI;
 import gavinx.temperatureapi.command.DebugCommands;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import gavinx.temperatureapi.net.DiurnalSync;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,5 +27,16 @@ public class TemperatureApi implements ModInitializer {
 
         // Networking: server->client diurnal sync
         DiurnalSync.registerServer();
+
+        // Per-tick body temperature update (server side)
+        ServerTickEvents.END_SERVER_TICK.register(server -> {
+            // 20 ticks per second -> dt = 1/20s per tick
+            double dt = 1.0 / 20.0;
+            var players = server.getPlayerManager().getPlayerList();
+            for (var p : players) {
+                BodyTemperatureState.tick(p, dt);
+            }
+        });
+
     }
 }

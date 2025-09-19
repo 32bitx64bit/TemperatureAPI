@@ -43,6 +43,11 @@ public final class DebugCommands {
                         .executes(ctx -> executeHumidity(ctx, BlockPosArgumentType.getLoadedBlockPos(ctx, "pos")))))
                 .then(literal("season")
                     .executes(ctx -> executeSeason(ctx)))
+                .then(literal("body")
+                    .executes(ctx -> executeBodyTemp(ctx))
+                    .then(literal("set").then(argument("value", StringArgumentType.word())
+                        .executes(ctx -> executeBodySet(ctx, StringArgumentType.getString(ctx, "value")))))
+                )
         );
     }
 
@@ -121,6 +126,31 @@ public final class DebugCommands {
         gavinx.temperatureapi.api.TemperatureResistanceAPI.Resistance r = gavinx.temperatureapi.api.TemperatureResistanceAPI.computeTotal(player);
         src.sendFeedback(() -> Text.literal("Resistance: +" + r.heatC + "°C heat, +" + r.coldC + "°C cold"), false);
         return 1;
+    }
+
+    private static int executeBodyTemp(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        double val = gavinx.temperatureapi.BodyTemperatureState.getC(player);
+        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player);
+        src.sendFeedback(() -> Text.literal("Body temperature: " + String.format("%.2f", val) + "°C (dT/dt: " + String.format("%.5f", rate) + " °C/s)"), false);
+        return 1;
+    }
+
+    private static int executeBodySet(CommandContext<ServerCommandSource> ctx, String value) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        try {
+            double v = Double.parseDouble(value);
+            gavinx.temperatureapi.BodyTemperatureState.setC(player, v);
+            src.sendFeedback(() -> Text.literal("Set body temperature to " + String.format("%.2f", v) + "°C"), false);
+            return 1;
+        } catch (NumberFormatException e) {
+            src.sendError(Text.literal("Invalid number: " + value));
+            return 0;
+        }
     }
 
     private static ServerPlayerEntity getPlayerOrFeedback(ServerCommandSource src) {

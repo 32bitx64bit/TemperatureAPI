@@ -2,7 +2,10 @@
 	"required": true,
 	"package": "gavinx.temperatureapi.mixin",
 	"compatibilityLevel": "JAVA_17",
-	"mixins": [],
+	"mixins": [
+		"PlayerEntityMixin",
+		"ServerPlayerEntityMixin"
+	],
 	"injectors": {
 		"defaultRequire": 1
 	}

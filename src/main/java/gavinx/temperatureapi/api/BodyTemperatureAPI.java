@@ -35,6 +35,9 @@ public final class BodyTemperatureAPI {
     // Humidity boost: for humidity above 50%, multiply heating rate by (1 + HUMIDITY_ACCEL * (hum-50)/50)
     private static final double HUMIDITY_ACCEL = 1.0; // at 100% humidity -> 2.0x heating rate
 
+    // Homeostasis: when ambient is comfortable, drift body temperature toward normal at a small fraction per second
+    private static final double RELAX_FRACTION_PER_SEC = 0.01; // 1% of (current-normal) per second
+
     /** Compute the passive body temperature rate-of-change (°C per second) at a world position. */
     public static double computeRateCPerSecond(World world, BlockPos pos) {
         if (world == null || pos == null) return 0.0;
@@ -43,7 +46,7 @@ public final class BodyTemperatureAPI {
         int humidity = HumidityAPI.getHumidityValue(world, pos);
         TemperatureResistanceAPI.Resistance res = null;
         // If a player context is needed for providers, callers should use the player overload.
-        return computeRateCPerSecond(ambientC, humidity, res);
+        return computeRateCPerSecond(ambientC, humidity, res, Double.NaN);
     }
 
     /** Compute the passive body temperature rate-of-change (°C per second) at the player's current position. */
@@ -55,16 +58,28 @@ public final class BodyTemperatureAPI {
         if (Double.isNaN(ambientC)) return 0.0;
         int humidity = HumidityAPI.getHumidityValue(world, pos);
         TemperatureResistanceAPI.Resistance res = TemperatureResistanceAPI.computeTotal(player);
-        return computeRateCPerSecond(ambientC, humidity, res);
+        return computeRateCPerSecond(ambientC, humidity, res, Double.NaN);
+    }
+
+    /** Compute the passive body temperature rate-of-change (°C per second) at the player's current position using current body temp for homeostasis. */
+    public static double computeRateCPerSecond(PlayerEntity player, double currentBodyTempC) {
+        if (player == null) return 0.0;
+        World world = player.getWorld();
+        BlockPos pos = player.getBlockPos();
+        double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
+        if (Double.isNaN(ambientC)) return 0.0;
+        int humidity = HumidityAPI.getHumidityValue(world, pos);
+        TemperatureResistanceAPI.Resistance res = TemperatureResistanceAPI.computeTotal(player);
+        return computeRateCPerSecond(ambientC, humidity, res, currentBodyTempC);
     }
 
     /** Compute the passive body temperature rate-of-change (°C per second) from explicit ambient inputs. */
     public static double computeRateCPerSecond(double ambientC, int humidityPercent) {
-        return computeRateCPerSecond(ambientC, humidityPercent, null);
+        return computeRateCPerSecond(ambientC, humidityPercent, null, Double.NaN);
     }
 
-    /** Core rate calculation with optional resistances, which shift the comfort band. */
-    public static double computeRateCPerSecond(double ambientC, int humidityPercent, TemperatureResistanceAPI.Resistance resistance) {
+    /** Core rate calculation with optional resistances and optional homeostasis to NORMAL_BODY_TEMP_C. */
+    public static double computeRateCPerSecond(double ambientC, int humidityPercent, TemperatureResistanceAPI.Resistance resistance, double currentBodyTempC) {
         double comfortMin = COMFORT_MIN_C;
         double comfortMax = COMFORT_MAX_C;
         if (resistance != null) {
@@ -72,22 +87,27 @@ public final class BodyTemperatureAPI {
             comfortMax += Math.max(0.0, resistance.heatC); // expand hotter comfort
         }
 
+        double rate = 0.0;
         if (ambientC < comfortMin) {
             double degreesBelow = comfortMin - ambientC; // positive
-            return -COOL_RATE_PER_DEGREE_PER_SEC * degreesBelow;
-        }
-        if (ambientC > comfortMax) {
+            rate += -COOL_RATE_PER_DEGREE_PER_SEC * degreesBelow;
+        } else if (ambientC > comfortMax) {
             double degreesAbove = ambientC - comfortMax; // positive
-            double rate = HEAT_RATE_PER_DEGREE_PER_SEC * degreesAbove;
+            double heat = HEAT_RATE_PER_DEGREE_PER_SEC * degreesAbove;
             if (humidityPercent > 50) {
                 double over = (humidityPercent - 50) / 50.0; // 0..1 for 50..100
                 double boost = 1.0 + HUMIDITY_ACCEL * Math.max(0.0, Math.min(1.0, over));
-                rate *= boost;
+                heat *= boost;
             }
-            return rate;
+            rate += heat;
+        } else {
+            // Ambient within comfort band: relax toward normal body temperature
+            if (!Double.isNaN(currentBodyTempC)) {
+                double delta = currentBodyTempC - NORMAL_BODY_TEMP_C; // positive if too hot
+                rate += -RELAX_FRACTION_PER_SEC * delta; // cool if positive, warm if negative
+            }
         }
-        // Within comfort band: no passive change.
-        return 0.0;
+        return rate;
     }
 
     /**
@@ -100,7 +120,11 @@ public final class BodyTemperatureAPI {
      * @return new body temperature after applying passive change for dtSeconds.
      */
     public static double advanceBodyTemp(World world, BlockPos pos, double currentBodyTempC, double dtSeconds) {
-        double rate = computeRateCPerSecond(world, pos);
+        if (world == null || pos == null) return currentBodyTempC;
+        double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
+        if (Double.isNaN(ambientC)) return currentBodyTempC;
+        int humidity = HumidityAPI.getHumidityValue(world, pos);
+        double rate = computeRateCPerSecond(ambientC, humidity, null, currentBodyTempC);
         double dt = Math.max(0.0, dtSeconds);
         return currentBodyTempC + rate * dt;
     }
@@ -108,6 +132,8 @@ public final class BodyTemperatureAPI {
     /** Player convenience overload for advanceBodyTemp. */
     public static double advanceBodyTemp(PlayerEntity player, double currentBodyTempC, double dtSeconds) {
         if (player == null) return currentBodyTempC;
-        return advanceBodyTemp(player.getWorld(), player.getBlockPos(), currentBodyTempC, dtSeconds);
+        double rate = computeRateCPerSecond(player); // includes resistances
+        double dt = Math.max(0.0, dtSeconds);
+        return currentBodyTempC + rate * dt;
     }
 }
