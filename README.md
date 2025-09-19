@@ -13,4 +13,4 @@ MIT
 
 ### TODO
 
-Is player soaked API. Allowed mod developers to get information on if the player has been in water, rained on, or snowed on. (soaked status)
+All current todos I can think of are finished.
