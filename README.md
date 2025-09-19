@@ -13,4 +13,4 @@ MIT
 
 ### TODO
 
-All current todos I can think of are finished.
+Make a custom icon
