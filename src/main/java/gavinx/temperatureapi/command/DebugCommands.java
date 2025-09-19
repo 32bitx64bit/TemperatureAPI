@@ -94,8 +94,9 @@ public final class DebugCommands {
         String out = (unit == null)
             ? TemperatureAPI.getTemperature(world, pos, Unit.CELSIUS) + " / " + TemperatureAPI.getTemperature(world, pos, Unit.FAHRENHEIT)
             : TemperatureAPI.getTemperature(world, pos, unit);
-        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player);
-        src.sendFeedback(() -> Text.literal("Temperature: " + out + ", Passive dT/dt: " + String.format("%.5f", rate) + " °C/s"), false);
+        double currentBody = gavinx.temperatureapi.BodyTemperatureState.getC(player);
+        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player, currentBody);
+        src.sendFeedback(() -> Text.literal("Temperature: " + out + ", Passive dT/dt (homeostasis): " + String.format("%.5f", rate) + " °C/s"), false);
         return 1;
     }
 
@@ -136,7 +137,7 @@ public final class DebugCommands {
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
         double val = gavinx.temperatureapi.BodyTemperatureState.getC(player);
-        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player);
+        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player, val);
         src.sendFeedback(() -> Text.literal("Body temperature: " + String.format("%.2f", val) + "°C (dT/dt: " + String.format("%.5f", rate) + " °C/s)"), false);
         return 1;
     }

@@ -163,7 +163,8 @@ public final class BodyTemperatureAPI {
     /** Player convenience overload for advanceBodyTemp. */
     public static double advanceBodyTemp(PlayerEntity player, double currentBodyTempC, double dtSeconds) {
         if (player == null) return currentBodyTempC;
-        double rate = computeRateCPerSecond(player); // includes resistances
+        // Use the current body temperature to enable homeostasis within the comfort band
+        double rate = computeRateCPerSecond(player, currentBodyTempC);
         double dt = Math.max(0.0, dtSeconds);
         return currentBodyTempC + rate * dt;
     }
