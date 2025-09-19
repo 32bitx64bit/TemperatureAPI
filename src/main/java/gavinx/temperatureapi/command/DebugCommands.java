@@ -8,6 +8,7 @@ import gavinx.temperatureapi.api.HumidityAPI;
 import gavinx.temperatureapi.api.TemperatureAPI;
 import gavinx.temperatureapi.api.TemperatureAPI.Unit;
 import gavinx.temperatureapi.api.SeasonsAPI;
+import gavinx.temperatureapi.api.SoakedAPI;
 import net.minecraft.command.argument.BlockPosArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -48,6 +49,8 @@ public final class DebugCommands {
                     .then(literal("set").then(argument("value", StringArgumentType.word())
                         .executes(ctx -> executeBodySet(ctx, StringArgumentType.getString(ctx, "value")))))
                 )
+                .then(literal("soaked")
+                    .executes(ctx -> executeSoaked(ctx)))
         );
     }
 
@@ -151,6 +154,17 @@ public final class DebugCommands {
             src.sendError(Text.literal("Invalid number: " + value));
             return 0;
         }
+    }
+
+    private static int executeSoaked(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        boolean soaked = SoakedAPI.isSoaked(player);
+        double secs = soaked ? SoakedAPI.getSoakedSeconds(player) : 0.0;
+        String msg = soaked ? ("Soaked (" + String.format("%.1f", secs) + "s remaining)") : "Dry";
+        src.sendFeedback(() -> Text.literal(msg), false);
+        return 1;
     }
 
     private static ServerPlayerEntity getPlayerOrFeedback(ServerCommandSource src) {

@@ -17,6 +17,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(PlayerEntity.class)
 public abstract class PlayerEntityMixin {
     private static final String NBT_BODY_TEMP = "temperatureapi:body_temp_c";
+    private static final String NBT_SOAKED_SEC = "temperatureapi:soaked_seconds";
 
     @Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
     private void temperatureapi$writeBodyTemp(NbtCompound nbt, CallbackInfo ci) {
@@ -24,6 +25,8 @@ public abstract class PlayerEntityMixin {
         if ((Object) this instanceof ServerPlayerEntity self) {
             double value = BodyTemperatureState.getC(self);
             nbt.putDouble(NBT_BODY_TEMP, value);
+            // Save soaked state
+            nbt.putDouble(NBT_SOAKED_SEC, gavinx.temperatureapi.SoakedState.getSeconds(self));
         }
     }
 
@@ -33,6 +36,9 @@ public abstract class PlayerEntityMixin {
             if (nbt.contains(NBT_BODY_TEMP)) {
                 double value = nbt.getDouble(NBT_BODY_TEMP);
                 BodyTemperatureState.setC(self, value);
+            }
+            if (nbt.contains(NBT_SOAKED_SEC)) {
+                gavinx.temperatureapi.SoakedState.setSeconds(self, nbt.getDouble(NBT_SOAKED_SEC));
             }
         }
     }

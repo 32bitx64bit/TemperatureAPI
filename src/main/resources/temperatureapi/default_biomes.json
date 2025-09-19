@@ -55,8 +55,8 @@
   { "biome": "biome.minecraft.end_barrens", "temperature": 0.0, "humidity": 0 },
   { "biome": "biome.minecraft.small_end_islands", "temperature": 0.0, "humidity": 0 },
   { "biome": "biome.minecraft.nether_wastes", "temperature": 45.0, "humidity": 0 },
-  { "biome": "biome.minecraft.warped_forest", "temperature": 40.0, "humidity": 5 },
-  { "biome": "biome.minecraft.crimson_forest", "temperature": 42.0, "humidity": 10 },
+  { "biome": "biome.minecraft.warped_forest", "temperature": 40.0, "humidity": 0 },
+  { "biome": "biome.minecraft.crimson_forest", "temperature": 42.0, "humidity": 0 },
   { "biome": "biome.minecraft.soul_sand_valley", "temperature": 46.0, "humidity": 0 },
   { "biome": "biome.minecraft.basalt_deltas", "temperature": 50.0, "humidity": 0 }
 ]

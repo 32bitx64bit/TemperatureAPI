@@ -34,6 +34,9 @@ public class TemperatureApi implements ModInitializer {
             double dt = 1.0 / 20.0;
             var players = server.getPlayerManager().getPlayerList();
             for (var p : players) {
+                // Update soaked status and countdown
+                SoakedState.tick(p, dt);
+                // Update body temperature using soaked-aware rate
                 BodyTemperatureState.tick(p, dt);
             }
         });

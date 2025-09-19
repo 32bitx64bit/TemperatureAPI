@@ -4,6 +4,9 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 
+// Optional: wetness integration
+import gavinx.temperatureapi.api.SoakedAPI;
+
 /**
  * BodyTemperatureAPI
  *
@@ -38,6 +41,10 @@ public final class BodyTemperatureAPI {
     // Homeostasis: when ambient is comfortable, drift body temperature toward normal at a small fraction per second
     private static final double RELAX_FRACTION_PER_SEC = 0.01; // 1% of (current-normal) per second
 
+    // Wetness modifiers (when soaked)
+    private static final double SOAKED_COLD_MULT = 1.8; // colder-than-comfort cooling accelerates
+    private static final double SOAKED_HOT_MULT = 0.6;  // hotter-than-comfort heating is reduced
+
     /** Compute the passive body temperature rate-of-change (°C per second) at a world position. */
     public static double computeRateCPerSecond(World world, BlockPos pos) {
         if (world == null || pos == null) return 0.0;
@@ -58,7 +65,19 @@ public final class BodyTemperatureAPI {
         if (Double.isNaN(ambientC)) return 0.0;
         int humidity = HumidityAPI.getHumidityValue(world, pos);
         TemperatureResistanceAPI.Resistance res = TemperatureResistanceAPI.computeTotal(player);
-        return computeRateCPerSecond(ambientC, humidity, res, Double.NaN);
+        double rate = computeRateCPerSecond(ambientC, humidity, res, Double.NaN);
+
+        // Apply soaked modifiers (server authoritative; client calls will see false)
+        if (SoakedAPI.isSoaked(player)) {
+            double comfortMin = COMFORT_MIN_C - Math.max(0.0, res.coldC);
+            double comfortMax = COMFORT_MAX_C + Math.max(0.0, res.heatC);
+            if (ambientC < comfortMin && rate < 0) {
+                rate *= SOAKED_COLD_MULT;
+            } else if (ambientC > comfortMax && rate > 0) {
+                rate *= SOAKED_HOT_MULT;
+            }
+        }
+        return rate;
     }
 
     /** Compute the passive body temperature rate-of-change (°C per second) at the player's current position using current body temp for homeostasis. */
@@ -70,7 +89,19 @@ public final class BodyTemperatureAPI {
         if (Double.isNaN(ambientC)) return 0.0;
         int humidity = HumidityAPI.getHumidityValue(world, pos);
         TemperatureResistanceAPI.Resistance res = TemperatureResistanceAPI.computeTotal(player);
-        return computeRateCPerSecond(ambientC, humidity, res, currentBodyTempC);
+        double rate = computeRateCPerSecond(ambientC, humidity, res, currentBodyTempC);
+
+        // Apply soaked modifiers
+        if (SoakedAPI.isSoaked(player)) {
+            double comfortMin = COMFORT_MIN_C - Math.max(0.0, res.coldC);
+            double comfortMax = COMFORT_MAX_C + Math.max(0.0, res.heatC);
+            if (ambientC < comfortMin && rate < 0) {
+                rate *= SOAKED_COLD_MULT;
+            } else if (ambientC > comfortMax && rate > 0) {
+                rate *= SOAKED_HOT_MULT;
+            }
+        }
+        return rate;
     }
 
     /** Compute the passive body temperature rate-of-change (°C per second) from explicit ambient inputs. */
