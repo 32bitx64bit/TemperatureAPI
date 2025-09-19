@@ -13,4 +13,3 @@ MIT
 
 ### TODO
 
-Make a custom icon
