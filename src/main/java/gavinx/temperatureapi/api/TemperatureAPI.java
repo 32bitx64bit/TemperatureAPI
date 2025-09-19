@@ -83,6 +83,26 @@ public final class TemperatureAPI {
         return getTemperature(player, parseUnit(unit));
     }
 
+    // --- Numeric helpers ---
+
+    /**
+     * Get the ambient temperature (including seasonal/diurnal adjustments) in Celsius at a world position.
+     * Returns NaN if inputs are null.
+     */
+    public static double getTemperatureCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        return resolveBiomeTemperatureCelsius(world, pos);
+    }
+
+    /**
+     * Get the ambient temperature (including seasonal/diurnal adjustments) in Celsius at the player's position.
+     * Returns NaN if inputs are null.
+     */
+    public static double getTemperatureCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        return getTemperatureCelsius(player.getWorld(), player.getBlockPos());
+    }
+
     // --- Internal helpers ---
 
     /**

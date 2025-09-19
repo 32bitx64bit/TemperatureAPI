@@ -35,6 +35,8 @@ public final class DebugCommands {
                     .then(unitArg().executes(ctx -> executeTemp(ctx, getUnitArg(ctx), null))
                         .then(argument("pos", BlockPosArgumentType.blockPos())
                             .executes(ctx -> executeTemp(ctx, getUnitArg(ctx), BlockPosArgumentType.getLoadedBlockPos(ctx, "pos"))))))
+                .then(literal("resistance")
+                    .executes(ctx -> executeResistance(ctx)))
                 .then(literal("humidity")
                     .executes(ctx -> executeHumidity(ctx, null))
                     .then(argument("pos", BlockPosArgumentType.blockPos())
@@ -84,7 +86,8 @@ public final class DebugCommands {
         String out = (unit == null)
             ? TemperatureAPI.getTemperature(world, pos, Unit.CELSIUS) + " / " + TemperatureAPI.getTemperature(world, pos, Unit.FAHRENHEIT)
             : TemperatureAPI.getTemperature(world, pos, unit);
-        src.sendFeedback(() -> Text.literal("Temperature: " + out), false);
+        double rate = gavinx.temperatureapi.api.BodyTemperatureAPI.computeRateCPerSecond(player);
+        src.sendFeedback(() -> Text.literal("Temperature: " + out + ", Passive dT/dt: " + String.format("%.5f", rate) + " °C/s"), false);
         return 1;
     }
 
@@ -108,6 +111,15 @@ public final class DebugCommands {
         String season = SeasonsAPI.getCurrentSeason(world);
         double offset = gavinx.temperatureapi.api.SeasonsAPI.temperatureOffsetC(world, player.getBlockPos());
         src.sendFeedback(() -> Text.literal("Season: " + season + " (offset: " + String.format("%.1f", offset) + "°C)"), false);
+        return 1;
+    }
+
+    private static int executeResistance(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        gavinx.temperatureapi.api.TemperatureResistanceAPI.Resistance r = gavinx.temperatureapi.api.TemperatureResistanceAPI.computeTotal(player);
+        src.sendFeedback(() -> Text.literal("Resistance: +" + r.heatC + "°C heat, +" + r.coldC + "°C cold"), false);
         return 1;
     }
 
