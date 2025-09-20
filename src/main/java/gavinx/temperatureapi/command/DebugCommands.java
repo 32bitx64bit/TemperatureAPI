@@ -9,6 +9,7 @@ import gavinx.temperatureapi.api.TemperatureAPI;
 import gavinx.temperatureapi.api.TemperatureAPI.Unit;
 import gavinx.temperatureapi.api.SeasonsAPI;
 import gavinx.temperatureapi.api.SoakedAPI;
+import gavinx.temperatureapi.api.biome.BiomeAPI;
 import net.minecraft.command.argument.BlockPosArgumentType;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
@@ -51,6 +52,8 @@ public final class DebugCommands {
                 )
                 .then(literal("soaked")
                     .executes(ctx -> executeSoaked(ctx)))
+                .then(literal("biome")
+                    .executes(ctx -> executeBiome(ctx)))
         );
     }
 
@@ -164,6 +167,31 @@ public final class DebugCommands {
         boolean soaked = SoakedAPI.isSoaked(player);
         double secs = soaked ? SoakedAPI.getSoakedSeconds(player) : 0.0;
         String msg = soaked ? ("Soaked (" + String.format("%.1f", secs) + "s remaining)") : "Dry";
+        src.sendFeedback(() -> Text.literal(msg), false);
+        return 1;
+    }
+
+    private static int executeBiome(CommandContext<ServerCommandSource> ctx) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        World world = player.getWorld();
+        BlockPos pos = player.getBlockPos();
+        var biomeEntry = world.getBiome(pos);
+        String regId = biomeEntry.getKey().map(k -> k.getValue().toString()).orElse("unknown");
+        String key = BiomeAPI.keyFor(biomeEntry);
+        var resolved = BiomeAPI.get(key);
+        String configured = resolved
+            .map(cb -> "Configured: temp=" + String.format("%.1f", cb.temperature) + "°C, humidity=" + cb.humidity + "%")
+            .orElse("Configured: none");
+        // Extra diagnostics: show collapseKey resolution and whether it's present in registry/defaults
+        String collapsed = (key == null ? null : "biome." + regId.split(":")[0] + "." + regId.split(":")[1].replace('/', '.').replace(".", "."));
+        int regCount = BiomeAPI.snapshotConfigured().size();
+        int defCount = BiomeAPI.snapshotDefaults().size();
+        String msg = "Biome id: " + regId +
+                     ", key: " + (key == null ? "unknown" : key) +
+                     ", " + configured +
+                     ", configuredEntries=" + regCount + ", defaultEntries=" + defCount;
         src.sendFeedback(() -> Text.literal(msg), false);
         return 1;
     }
