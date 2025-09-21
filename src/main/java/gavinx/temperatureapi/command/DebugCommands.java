@@ -52,6 +52,10 @@ public final class DebugCommands {
                 )
                 .then(literal("soaked")
                     .executes(ctx -> executeSoaked(ctx)))
+                .then(literal("blockoffset")
+                    .executes(ctx -> executeBlockOffset(ctx, null))
+                    .then(argument("pos", BlockPosArgumentType.blockPos())
+                        .executes(ctx -> executeBlockOffset(ctx, BlockPosArgumentType.getLoadedBlockPos(ctx, "pos")))))
                 .then(literal("biome")
                     .executes(ctx -> executeBiome(ctx)))
         );
@@ -168,6 +172,17 @@ public final class DebugCommands {
         double secs = soaked ? SoakedAPI.getSoakedSeconds(player) : 0.0;
         String msg = soaked ? ("Soaked (" + String.format("%.1f", secs) + "s remaining)") : "Dry";
         src.sendFeedback(() -> Text.literal(msg), false);
+        return 1;
+    }
+
+    private static int executeBlockOffset(CommandContext<ServerCommandSource> ctx, BlockPos posArg) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        World world = player.getWorld();
+        BlockPos pos = posArg != null ? posArg : player.getBlockPos();
+        double off = gavinx.temperatureapi.api.BlockThermalAPI.temperatureOffsetC(world, pos);
+        src.sendFeedback(() -> Text.literal("Block thermal offset: " + String.format("%.2f", off) + "°C"), false);
         return 1;
     }
 

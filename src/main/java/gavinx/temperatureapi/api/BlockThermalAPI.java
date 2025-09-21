@@ -72,11 +72,24 @@ public final class BlockThermalAPI {
         // Cache is time-based; no immediate invalidation needed
     }
 
-    /** Register a dynamic provider. */
+    /** Register a dynamic provider. Note: if you use this overload, also call setGlobalMaxRangeHint or use the provider+range overload so the scanner knows how far to search. */
     public static void register(Provider provider) {
         if (provider != null) {
             PROVIDERS.add(provider);
         }
+    }
+
+    /** Register a dynamic provider and give a maximum range hint so the scanner searches far enough. */
+    public static void register(Provider provider, int maxRangeHint) {
+        if (provider != null) {
+            PROVIDERS.add(provider);
+            if (maxRangeHint > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = Math.max(0, maxRangeHint);
+        }
+    }
+
+    /** Set a global maximum scan radius hint (used when only dynamic providers are registered). */
+    public static void setGlobalMaxRangeHint(int maxRange) {
+        if (maxRange > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = Math.max(0, maxRange);
     }
 
     /** Return the ambient temperature offset in Celsius at a position due to registered block sources. */
@@ -93,11 +106,10 @@ public final class BlockThermalAPI {
         }
 
         double sum = 0.0;
-        // Iterate a cube around the position. This is intentionally conservative; providers can early-out by returning null.
+        // Iterate a cube around the position. Include the origin block as sources like campfires are often underfoot.
         for (int dx = -maxR; dx <= maxR; dx++) {
             for (int dy = -maxR; dy <= maxR; dy++) {
                 for (int dz = -maxR; dz <= maxR; dz++) {
-                    if (dx == 0 && dy == 0 && dz == 0) continue;
                     BlockPos bp = atPos.add(dx, dy, dz);
                     BlockState state = world.getBlockState(bp);
                     if (state.isAir()) continue;
@@ -109,8 +121,8 @@ public final class BlockThermalAPI {
                     double dist = atPos.toCenterPos().distanceTo(bp.toCenterPos());
                     if (dist > ts.range + 0.5) continue;
 
-                    // Occlusion check via raycast
-                    if (!hasLineOfSight(world, atPos, bp)) continue;
+                    // Occlusion check via raycast (treat same-block as clear)
+                    if (!atPos.equals(bp) && !hasLineOfSight(world, atPos, bp)) continue;
 
                     // No falloff for now: full effect within range
                     sum += ts.deltaC;
