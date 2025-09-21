@@ -132,7 +132,8 @@ public final class TemperatureAPI {
         double seasonalOffset = SeasonsAPI.temperatureOffsetC(world, pos);
         // Diurnal adjustment (quantized to 1-minute steps)
         double diurnalOffset = DayNightAPI.temperatureOffsetC(world, pos);
-        return baseC + seasonalOffset + diurnalOffset;
+        double blockOffset = BlockThermalAPI.temperatureOffsetC(world, pos);
+        return baseC + seasonalOffset + diurnalOffset + blockOffset;
     }
 
     private static double cToF(double c) {
