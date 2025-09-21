@@ -41,6 +41,9 @@ public final class BodyTemperatureAPI {
     // Homeostasis: when ambient is comfortable, drift body temperature toward normal at a small fraction per second
     private static final double RELAX_FRACTION_PER_SEC = 0.01; // 1% of (current-normal) per second
 
+    // Conduction toward ambient: proportional to (ambient - body) each second
+    private static final double CONDUCTION_RATE_PER_SEC = 0.01; // e.g., 0.01 -> 1.0°C/s for 100°C delta
+
     // Wetness modifiers (when soaked)
     private static final double SOAKED_COLD_MULT = 1.8; // colder-than-comfort cooling accelerates
     private static final double SOAKED_HOT_MULT = 0.6;  // hotter-than-comfort heating is reduced
@@ -138,6 +141,17 @@ public final class BodyTemperatureAPI {
                 rate += -RELAX_FRACTION_PER_SEC * delta; // cool if positive, warm if negative
             }
         }
+
+        // Conduction toward ambient: if we know current body temp, add a term pulling toward ambient
+        if (!Double.isNaN(currentBodyTempC)) {
+            double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
+            rate += conduction;
+
+            // Safety: if body is below ambient, do not allow net cooling; ensure warming back toward ambient
+            if (currentBodyTempC < ambientC && rate < 0) {
+                rate = Math.max(conduction, 0.0);
+            }
+        }
         return rate;
     }
 
@@ -157,7 +171,12 @@ public final class BodyTemperatureAPI {
         int humidity = HumidityAPI.getHumidityValue(world, pos);
         double rate = computeRateCPerSecond(ambientC, humidity, null, currentBodyTempC);
         double dt = Math.max(0.0, dtSeconds);
-        return currentBodyTempC + rate * dt;
+        double next = currentBodyTempC + rate * dt;
+        // Prevent dipping below ambient due to numerical integration or strong cooling
+        if (currentBodyTempC >= ambientC && next < ambientC) {
+            next = ambientC;
+        }
+        return next;
     }
 
     /** Player convenience overload for advanceBodyTemp. */
@@ -166,6 +185,12 @@ public final class BodyTemperatureAPI {
         // Use the current body temperature to enable homeostasis within the comfort band
         double rate = computeRateCPerSecond(player, currentBodyTempC);
         double dt = Math.max(0.0, dtSeconds);
-        return currentBodyTempC + rate * dt;
+        double next = currentBodyTempC + rate * dt;
+        // Clamp not to dip below ambient
+        double ambientC = TemperatureAPI.getTemperatureCelsius(player.getWorld(), player.getBlockPos());
+        if (!Double.isNaN(ambientC) && currentBodyTempC >= ambientC && next < ambientC) {
+            next = ambientC;
+        }
+        return next;
     }
 }
