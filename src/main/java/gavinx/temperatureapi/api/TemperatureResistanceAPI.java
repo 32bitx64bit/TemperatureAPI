@@ -38,8 +38,8 @@ public final class TemperatureResistanceAPI {
     public static final String NBT_COLD_TIER = "tempapi_cold_tier"; // -1..-5
 
     // Optional global caps (per direction). Mods can ignore these by calling tierToDegrees directly.
-    public static final double DEFAULT_MAX_HEAT_RESIST_C = 16.0; // up to tier 5
-    public static final double DEFAULT_MAX_COLD_RESIST_C = 16.0; // up to tier -5
+    public static final double DEFAULT_MAX_HEAT_RESIST_C = 40.0; // up to tier 5
+    public static final double DEFAULT_MAX_COLD_RESIST_C = 40.0; // up to tier -5
 
     /** Encapsulates resistance in degrees Celsius for both directions. */
     public static final class Resistance {
@@ -112,9 +112,9 @@ public final class TemperatureResistanceAPI {
         return switch (abs) {
             case 1 -> 2.0;
             case 2 -> 4.0;
-            case 3 -> 8.0;
-            case 4 -> 12.0;
-            case 5 -> 16.0;
+            case 3 -> 6.0;
+            case 4 -> 8.0;
+            case 5 -> 10.0;
             default -> 0.0;
         };
     }
