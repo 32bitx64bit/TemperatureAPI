@@ -135,21 +135,26 @@ public final class BodyTemperatureAPI {
             }
             rate += heat;
         } else {
-            // Ambient within comfort band: relax toward normal body temperature
+            // Ambient within comfort band (including resistance-expanded): no ambient-driven heating/cooling.
+            // Only apply gentle homeostasis toward normal body temperature if current body temp is known.
             if (!Double.isNaN(currentBodyTempC)) {
                 double delta = currentBodyTempC - NORMAL_BODY_TEMP_C; // positive if too hot
                 rate += -RELAX_FRACTION_PER_SEC * delta; // cool if positive, warm if negative
             }
         }
 
-        // Conduction toward ambient: if we know current body temp, add a term pulling toward ambient
+        // Conduction toward ambient should only apply when ambient is OUTSIDE the comfort band.
+        // Within the comfort band we do not pull toward ambient; resistance is meant to prevent freezing/overheating.
         if (!Double.isNaN(currentBodyTempC)) {
-            double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
-            rate += conduction;
+            boolean outsideComfort = (ambientC < comfortMin) || (ambientC > comfortMax);
+            if (outsideComfort) {
+                double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
+                rate += conduction;
 
-            // Safety: if body is below ambient, do not allow net cooling; ensure warming back toward ambient
-            if (currentBodyTempC < ambientC && rate < 0) {
-                rate = Math.max(conduction, 0.0);
+                // Safety: if body is below ambient, do not allow net cooling; ensure warming back toward ambient
+                if (currentBodyTempC < ambientC && rate < 0) {
+                    rate = Math.max(conduction, 0.0);
+                }
             }
         }
         return rate;
