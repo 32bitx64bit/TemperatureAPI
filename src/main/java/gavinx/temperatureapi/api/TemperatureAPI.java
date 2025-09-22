@@ -24,6 +24,53 @@ public final class TemperatureAPI {
         CELSIUS, FAHRENHEIT
     }
 
+    // --- Component accessors (biome/season/day-night only; excludes block sources) ---
+
+    /** Base biome temperature in Celsius (without seasonal/diurnal or block sources). NaN on null inputs. */
+    public static double getBiomeBaseCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        return resolveBiomeBaseCelsius(world, pos);
+    }
+
+    /** Seasonal temperature offset in Celsius at a world position. NaN on null inputs. */
+    public static double getSeasonalOffsetCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        return SeasonsAPI.temperatureOffsetC(world, pos);
+    }
+
+    /** Diurnal/day-night temperature offset in Celsius at a world position. NaN on null inputs. */
+    public static double getDiurnalOffsetCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        return DayNightAPI.temperatureOffsetC(world, pos);
+    }
+
+    /** Environment temperature in Celsius = biome base + seasonal + diurnal. Excludes block sources. NaN on null. */
+    public static double getEnvironmentCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        double base = resolveBiomeBaseCelsius(world, pos);
+        double seasonal = SeasonsAPI.temperatureOffsetC(world, pos);
+        double diurnal = DayNightAPI.temperatureOffsetC(world, pos);
+        return base + seasonal + diurnal;
+    }
+
+    /** Player overloads for component accessors. */
+    public static double getBiomeBaseCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        return getBiomeBaseCelsius(player.getWorld(), player.getBlockPos());
+    }
+    public static double getSeasonalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        return getSeasonalOffsetCelsius(player.getWorld(), player.getBlockPos());
+    }
+    public static double getDiurnalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        return getDiurnalOffsetCelsius(player.getWorld(), player.getBlockPos());
+    }
+    public static double getEnvironmentCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        return getEnvironmentCelsius(player.getWorld(), player.getBlockPos());
+    }
+
     /**
      * Get the temperature string for the biome at the given world position.
      *
@@ -86,7 +133,7 @@ public final class TemperatureAPI {
     // --- Numeric helpers ---
 
     /**
-     * Get the ambient temperature (including seasonal/diurnal adjustments) in Celsius at a world position.
+     * Get the ambient temperature (including seasonal/diurnal adjustments and block sources) in Celsius at a world position.
      * Returns NaN if inputs are null.
      */
     public static double getTemperatureCelsius(World world, BlockPos pos) {
@@ -105,29 +152,23 @@ public final class TemperatureAPI {
 
     // --- Internal helpers ---
 
-    /**
-     * Resolve the biome temperature in degrees Celsius.
-     *
-     * Implementation detail:
-     * Base value comes from custom biomes (if configured) or vanilla biome temperature.
-     * Then we apply a seasonal offset from Serene Seasons (if loaded on Fabric).
-     */
-    private static double resolveBiomeTemperatureCelsius(World world, BlockPos pos) {
+    /** Base biome temperature in Celsius (no season/diurnal/block). */
+    private static double resolveBiomeBaseCelsius(World world, BlockPos pos) {
         RegistryEntry<Biome> entry = world.getBiome(pos);
 
-        double baseC;
         String key = BiomeAPI.keyFor(entry);
         if (key != null) {
             Optional<BiomeAPI.CustomBiome> custom = BiomeAPI.get(key);
             if (custom.isPresent()) {
-                baseC = custom.get().temperature; // Celsius from JSON
-            } else {
-                baseC = entry.value().getTemperature();
+                return custom.get().temperature; // Celsius from JSON
             }
-        } else {
-            baseC = entry.value().getTemperature();
         }
+        return entry.value().getTemperature();
+    }
 
+    /** Resolve the full ambient temperature in Celsius (biome + season + diurnal + blocks). */
+    private static double resolveBiomeTemperatureCelsius(World world, BlockPos pos) {
+        double baseC = resolveBiomeBaseCelsius(world, pos);
         // Seasonal adjustment (no-op if Serene Seasons is not present)
         double seasonalOffset = SeasonsAPI.temperatureOffsetC(world, pos);
         // Diurnal adjustment (quantized to 1-minute steps)
