@@ -2,6 +2,9 @@ package gavinx.temperatureapi.api;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.block.DoorBlock;
+import net.minecraft.block.FenceGateBlock;
+import net.minecraft.block.TrapdoorBlock;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
@@ -26,9 +29,13 @@ import java.util.concurrent.ConcurrentHashMap;
  * - range: whole blocks (Manhattan radius is not enforced; we use Euclidean distance)
  *
  * Occlusion:
- * - Line-of-sight is enforced using a raycast from the evaluation position to the
- *   center of the source block. If the first hit is not the source block, the effect
- *   is considered blocked.
+ * - Default: flood-fill occlusion that "flows" through openings and around corners.
+ * - Line-of-sight raycast is also supported and can be selected per source.
+ *
+ * Falloff (per source):
+ * - Each source can be static (no dropoff) or use cosine dropoff beyond its full-strength range.
+ *   With dropoff, full strength applies up to 'range', then attenuates with weight = cos((dOver/dropoff) * PI/2)
+ *   until 0 at 'range + dropoff'. Default dropoff is 7 (clamped to max 15) if not specified.
  *
  * Caching:
  * - Offsets are cached per (world,pos) for 80 ticks to reduce scanning cost.
@@ -37,15 +44,50 @@ public final class BlockThermalAPI {
 
     private BlockThermalAPI() {}
 
+    /** Occlusion model used to determine if a target position can be affected by a source. */
+    public enum OcclusionMode {
+        LINE_OF_SIGHT, // straight raycast; fast
+        FLOOD_FILL     // vents through openings and around corners; cached per source
+    }
+
+    /** Falloff curve for attenuation beyond full-strength range. */
+    public enum FalloffCurve {
+        COSINE // weight = cos(t * PI/2)
+    }
+
     /** Represents a thermal source or sink contributed by a block. */
     public static final class ThermalSource {
         public final double deltaC; // +C warms, -C cools
-        public final int range;     // in blocks, >= 0
+        public final int range;     // full-strength radius in blocks, >= 0
+        public final OcclusionMode occlusion;
+        public final int dropoffBlocks; // 0 = static (no dropoff), else clamp [0,15]
+        public final FalloffCurve curve;
+
+        /** Default: FLOOD_FILL occlusion, cosine dropoff of 7 (clamped). */
         public ThermalSource(double deltaC, int range) {
+            this(deltaC, range, OcclusionMode.FLOOD_FILL, 7, FalloffCurve.COSINE);
+        }
+        /** Set occlusion; default cosine dropoff of 7 (clamped). */
+        public ThermalSource(double deltaC, int range, OcclusionMode occlusion) {
+            this(deltaC, range, occlusion, 7, FalloffCurve.COSINE);
+        }
+        /** Full control; dropoffBlocks=0 disables dropoff. */
+        public ThermalSource(double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks, FalloffCurve curve) {
             this.deltaC = deltaC;
             this.range = Math.max(0, range);
+            this.occlusion = occlusion == null ? OcclusionMode.FLOOD_FILL : occlusion;
+            int d = Math.max(0, dropoffBlocks);
+            if (d > 15) d = 15;
+            this.dropoffBlocks = d;
+            this.curve = curve == null ? FalloffCurve.COSINE : curve;
         }
-        @Override public String toString() { return "ThermalSource{" + deltaC + "C, r=" + range + "}"; }
+        /** Convenience: create a static source (no dropoff), keeping default occlusion. */
+        public static ThermalSource staticSource(double deltaC, int range) {
+            return new ThermalSource(deltaC, range, OcclusionMode.FLOOD_FILL, 0, FalloffCurve.COSINE);
+        }
+        /** Total influence radius including any dropoff zone. */
+        public int influenceRadius() { return range + dropoffBlocks; }
+        @Override public String toString() { return "ThermalSource{" + deltaC + "C, r=" + range + ", occ=" + occlusion + ", drop=" + dropoffBlocks + ", curve=" + curve + "}"; }
     }
 
     /** Provider for dynamic sources based on world/blockstate. Return null for no effect. */
@@ -63,13 +105,32 @@ public final class BlockThermalAPI {
     // Track the maximum scan radius implied by registrations
     private static volatile int MAX_SOURCE_RANGE = 0;
 
-    /** Register a constant thermal source for a specific Block. */
+    /** Register a constant thermal source for a specific Block. Defaults: FLOOD_FILL + cosine dropoff(7). */
     public static void register(Block block, double deltaC, int range) {
         Objects.requireNonNull(block, "block");
         ThermalSource ts = new ThermalSource(deltaC, range);
         SIMPLE.put(block, ts);
-        if (ts.range > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = ts.range;
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
         // Cache is time-based; no immediate invalidation needed
+    }
+
+    /** Register a constant thermal source with explicit occlusion (still uses cosine dropoff 7 by default). */
+    public static void register(Block block, double deltaC, int range, OcclusionMode occlusion) {
+        Objects.requireNonNull(block, "block");
+        ThermalSource ts = new ThermalSource(deltaC, range, occlusion);
+        SIMPLE.put(block, ts);
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
+    }
+
+    /** Register a constant thermal source with explicit dropoff and occlusion. Set dropoffBlocks=0 for static. */
+    public static void register(Block block, double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks) {
+        Objects.requireNonNull(block, "block");
+        ThermalSource ts = new ThermalSource(deltaC, range, occlusion, dropoffBlocks, FalloffCurve.COSINE);
+        SIMPLE.put(block, ts);
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
     }
 
     /** Register a dynamic provider. Note: if you use this overload, also call setGlobalMaxRangeHint or use the provider+range overload so the scanner knows how far to search. */
@@ -117,15 +178,41 @@ public final class BlockThermalAPI {
                     ThermalSource ts = resolve(world, bp, state);
                     if (ts == null || ts.range <= 0 || ts.deltaC == 0.0) continue;
 
-                    // Distance check (Euclidean)
-                    double dist = atPos.toCenterPos().distanceTo(bp.toCenterPos());
-                    if (dist > ts.range + 0.5) continue;
+                    int drop = ts.dropoffBlocks;
+                    int budget = ts.range + drop;
 
-                    // Occlusion check via raycast (treat same-block as clear)
-                    if (!atPos.equals(bp) && !hasLineOfSight(world, atPos, bp)) continue;
+                    // Distance check (Euclidean quick reject)
+                    double euclid = atPos.toCenterPos().distanceTo(bp.toCenterPos());
+                    if (euclid > budget + 0.5) continue;
 
-                    // No falloff for now: full effect within range
-                    sum += ts.deltaC;
+                    double contrib = 0.0;
+                    if (ts.occlusion == OcclusionMode.FLOOD_FILL) {
+                        int steps = FloodFill.stepsTo(world, bp, atPos, budget);
+                        if (steps < 0) continue; // unreachable
+                        if (steps <= ts.range) {
+                            contrib = ts.deltaC;
+                        } else if (drop > 0) {
+                            int over = Math.max(0, steps - ts.range);
+                            double t = Math.min(1.0, over / (double) drop);
+                            contrib = ts.deltaC * weight(ts.curve, t);
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        boolean clear = atPos.equals(bp) || hasLineOfSight(world, atPos, bp);
+                        if (!clear) continue;
+                        if (euclid <= ts.range + 0.5) {
+                            contrib = ts.deltaC;
+                        } else if (drop > 0) {
+                            double over = Math.max(0.0, euclid - ts.range);
+                            double t = Math.min(1.0, over / drop);
+                            contrib = ts.deltaC * weight(ts.curve, t);
+                        } else {
+                            continue;
+                        }
+                    }
+
+                    sum += contrib;
                 }
             }
         }
@@ -142,8 +229,9 @@ public final class BlockThermalAPI {
                 try {
                     ThermalSource dyn = p.get(world, pos, state);
                     if (dyn != null) {
-                        // Track max radius from dynamic inputs loosely
-                        if (dyn.range > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = dyn.range;
+                        // Track max influence radius from dynamic inputs
+                        int influence = dyn.influenceRadius();
+                        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
                         if (dyn.deltaC != 0.0 && dyn.range > 0) return dyn;
                     }
                 } catch (Throwable ignored) {}
@@ -193,6 +281,79 @@ public final class BlockThermalAPI {
             BlockPos hitPos = hit.getBlockPos();
             return hitPos != null && hitPos.equals(to);
         }
+    }
+
+    // --- Flood-fill propagation (optional occlusion mode) ---
+
+    private static final class FloodFill {
+        private static final Map<Cache.WorldKey, Map<Long, FFEntry>> CACHE = new ConcurrentHashMap<>();
+        private static final long TTL_TICKS = 80L;
+
+        static int stepsTo(World world, BlockPos source, BlockPos target, int budget) {
+            if (source.equals(target)) return 0;
+            int manhattan = Math.abs(target.getX() - source.getX()) + Math.abs(target.getY() - source.getY()) + Math.abs(target.getZ() - source.getZ());
+            if (manhattan > budget) return -1;
+
+            Map<Long, FFEntry> bySource = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
+            long key = (source.asLong() ^ ((long) budget << 32));
+            long now = world.getTime();
+            FFEntry e = bySource.get(key);
+            if (e == null || (now - e.tick) > TTL_TICKS) {
+                e = compute(world, source, budget);
+                bySource.put(key, e);
+            }
+            Integer dist = e.distances.get(target.asLong());
+            return dist == null ? -1 : dist;
+        }
+
+        private static FFEntry compute(World world, BlockPos source, int budget) {
+            java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
+            java.util.HashSet<Long> visited = new java.util.HashSet<>();
+            java.util.HashMap<Long, Integer> distances = new java.util.HashMap<>();
+
+            q.add(new Node(source, 0));
+            visited.add(source.asLong());
+            distances.put(source.asLong(), 0);
+
+            while (!q.isEmpty()) {
+                Node n = q.poll();
+                if (n.dist >= budget) continue; // no remaining budget
+                for (var dir : net.minecraft.util.math.Direction.values()) {
+                    BlockPos np = n.pos.offset(dir);
+                    long npLong = np.asLong();
+                    if (visited.contains(npLong)) continue;
+                    BlockState st = world.getBlockState(np);
+                    if (!isPassable(world, np, st)) continue;
+                    visited.add(npLong);
+                    distances.put(npLong, n.dist + 1);
+                    q.add(new Node(np, n.dist + 1));
+                }
+            }
+            return new FFEntry(world.getTime(), budget, distances);
+        }
+
+        private record Node(BlockPos pos, int dist) {}
+        private record FFEntry(long tick, int budget, java.util.HashMap<Long, Integer> distances) {}
+    }
+
+    private static boolean isPassable(World world, BlockPos pos, BlockState state) {
+        if (state.isAir()) return true;
+        try {
+            if (state.getCollisionShape(world, pos).isEmpty()) return true;
+        } catch (Throwable ignored) {}
+        try {
+            if (state.getBlock() instanceof DoorBlock && state.contains(DoorBlock.OPEN) && state.get(DoorBlock.OPEN)) return true;
+            if (state.getBlock() instanceof FenceGateBlock && state.contains(FenceGateBlock.OPEN) && state.get(FenceGateBlock.OPEN)) return true;
+            if (state.getBlock() instanceof TrapdoorBlock && state.contains(TrapdoorBlock.OPEN) && state.get(TrapdoorBlock.OPEN)) return true;
+        } catch (Throwable ignored) {}
+        return false;
+    }
+
+    private static double weight(FalloffCurve curve, double t) {
+        // t in [0,1]
+        t = Math.max(0.0, Math.min(1.0, t));
+        // Only COSINE currently
+        return Math.cos(t * (Math.PI / 2.0));
     }
 
     // --- Cache impl ---
