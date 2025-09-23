@@ -32,8 +32,8 @@ public final class BodyTemperatureAPI {
     public static final double COMFORT_MAX_C = 30.0;
 
     // Base passive exchange rates per degree delta beyond comfort band (°C change per second per °C ambient beyond band)
-    private static final double COOL_RATE_PER_DEGREE_PER_SEC = 0.00035; // colder than 13°C
-    private static final double HEAT_RATE_PER_DEGREE_PER_SEC = 0.00025; // hotter than 30°C (before humidity boost)
+    private static final double COOL_RATE_PER_DEGREE_PER_SEC = 0.0045; // colder than comfort edge
+    private static final double HEAT_RATE_PER_DEGREE_PER_SEC = 0.0035; // hotter than comfort edge (before humidity boost)
 
     // Humidity boost: for humidity above 50%, multiply heating rate by (1 + HUMIDITY_ACCEL * (hum-50)/50)
     private static final double HUMIDITY_ACCEL = 1.0; // at 100% humidity -> 2.0x heating rate
@@ -41,8 +41,8 @@ public final class BodyTemperatureAPI {
     // Homeostasis: when ambient is comfortable, drift body temperature toward normal at a small fraction per second
     private static final double RELAX_FRACTION_PER_SEC = 0.01; // 1% of (current-normal) per second
 
-    // Conduction toward ambient: proportional to (ambient - body) each second
-    private static final double CONDUCTION_RATE_PER_SEC = 0.01; // e.g., 0.01 -> 1.0°C/s for 100°C delta
+    // Conduction toward ambient: proportional term (tuned much lower to avoid rapid tanking)
+    private static final double CONDUCTION_RATE_PER_SEC = 0.001; // e.g., 0.001 -> 0.1°C/s for 100°C delta
 
     // Wetness modifiers (when soaked)
     private static final double SOAKED_COLD_MULT = 1.8; // colder-than-comfort cooling accelerates
@@ -114,6 +114,10 @@ public final class BodyTemperatureAPI {
 
     /** Core rate calculation with optional resistances and optional homeostasis to NORMAL_BODY_TEMP_C. */
     public static double computeRateCPerSecond(double ambientC, int humidityPercent, TemperatureResistanceAPI.Resistance resistance, double currentBodyTempC) {
+        // Clamp inputs
+        if (Double.isNaN(ambientC) || Double.isInfinite(ambientC)) return 0.0;
+        humidityPercent = Math.max(0, Math.min(100, humidityPercent));
+
         double comfortMin = COMFORT_MIN_C;
         double comfortMax = COMFORT_MAX_C;
         if (resistance != null) {
@@ -143,18 +147,20 @@ public final class BodyTemperatureAPI {
             }
         }
 
-        // Conduction toward ambient should only apply when ambient is OUTSIDE the comfort band.
-        // Within the comfort band we do not pull toward ambient; resistance is meant to prevent freezing/overheating.
+        // Conduction: only inside the comfort band, and only to warm toward ambient (no cooling inside).
         if (!Double.isNaN(currentBodyTempC)) {
-            boolean outsideComfort = (ambientC < comfortMin) || (ambientC > comfortMax);
-            if (outsideComfort) {
+            boolean insideComfort = (ambientC >= comfortMin) && (ambientC <= comfortMax);
+            if (insideComfort && currentBodyTempC < ambientC) {
                 double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
                 rate += conduction;
-
-                // Safety: if body is below ambient, do not allow net cooling; ensure warming back toward ambient
-                if (currentBodyTempC < ambientC && rate < 0) {
-                    rate = Math.max(conduction, 0.0);
-                }
+            }
+        }
+        // Final safety:
+        // - If body <= ambient, do not allow net cooling (prevents sinking further below ambient)
+        // - If body >= ambient, do not allow net heating to overshoot upward instantly (still allowed, but rate limited by previous terms)
+        if (!Double.isNaN(currentBodyTempC)) {
+            if (currentBodyTempC <= ambientC && rate < 0) {
+                rate = 0.0;
             }
         }
         return rate;
