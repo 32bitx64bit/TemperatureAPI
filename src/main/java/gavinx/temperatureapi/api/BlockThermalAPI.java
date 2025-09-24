@@ -229,6 +229,11 @@ public final class BlockThermalAPI {
                         if (dot <= 0.0) continue;
                     }
 
+                    // Quick seal test: if the source block is fully enclosed by non-passable neighbors, skip
+                    if (isFullySealed(world, bp)) {
+                        continue;
+                    }
+
                     double contrib = 0.0;
                     if (ts.occlusion == OcclusionMode.FLOOD_FILL) {
                         int steps = FloodFill.stepsTo(world, bp, atPos, budget);
@@ -289,42 +294,33 @@ public final class BlockThermalAPI {
         Vec3d start = from.toCenterPos();
         Vec3d end = to.toCenterPos();
 
-        // Prefer using a nearby player as the raycast context entity (avoids NPE in RaycastContext)
-        net.minecraft.entity.player.PlayerEntity ctxEntity = world.getClosestPlayer(start.x, start.y, start.z, 64.0, false);
-        if (ctxEntity == null) {
-            // No suitable entity context available; fail open to avoid crashes in headless contexts
-            try {
-                RaycastContext ctx = new RaycastContext(
-                        start,
-                        end,
-                        RaycastContext.ShapeType.COLLIDER,
-                        RaycastContext.FluidHandling.ANY,
-                        // still pass null, but guard with try/catch in case of NPE in some mappings
-                        null
-                );
-                var hit = world.raycast(ctx);
-                if (hit == null) return true;
-                if (hit.getType() == net.minecraft.util.hit.HitResult.Type.MISS) return true;
-                BlockPos hitPos = hit.getBlockPos();
-                return hitPos != null && hitPos.equals(to);
-            } catch (Throwable t) {
-                // Mapping or runtime may NPE when entity is null; treat as clear to prevent hard crash
-                return true;
-            }
-        } else {
+        try {
+            // Entity is optional in modern mappings; pass null safely
             RaycastContext ctx = new RaycastContext(
                     start,
                     end,
                     RaycastContext.ShapeType.COLLIDER,
                     RaycastContext.FluidHandling.ANY,
-                    ctxEntity
+                    null
             );
             var hit = world.raycast(ctx);
-            if (hit == null) return true;
+            if (hit == null) return false;
             if (hit.getType() == net.minecraft.util.hit.HitResult.Type.MISS) return true;
             BlockPos hitPos = hit.getBlockPos();
             return hitPos != null && hitPos.equals(to);
+        } catch (Throwable t) {
+            // On any unexpected failure, fail closed (treat as occluded)
+            return false;
         }
+    }
+
+    private static boolean isFullySealed(World world, BlockPos source) {
+        for (Direction d : Direction.values()) {
+            BlockPos np = source.offset(d);
+            BlockState st = world.getBlockState(np);
+            if (isPassable(world, np, st)) return false;
+        }
+        return true;
     }
 
     // --- Flood-fill propagation (optional occlusion mode) ---
