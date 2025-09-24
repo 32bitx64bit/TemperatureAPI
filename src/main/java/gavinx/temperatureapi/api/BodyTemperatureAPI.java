@@ -6,6 +6,7 @@ import net.minecraft.world.World;
 
 // Optional: wetness integration
 import gavinx.temperatureapi.api.SoakedAPI;
+import gavinx.temperatureapi.compat.DehydrationCompat;
 
 /**
  * BodyTemperatureAPI
@@ -80,6 +81,10 @@ public final class BodyTemperatureAPI {
                 rate *= SOAKED_HOT_MULT;
             }
         }
+        // Optional Dehydration integration: amplify ambient-driven rate when dehydrated
+        if (DehydrationCompat.isPlayerDehydrated(player)) {
+            rate *= 1.4;
+        }
         return rate;
     }
 
@@ -103,6 +108,10 @@ public final class BodyTemperatureAPI {
             } else if (ambientC > comfortMax && rate > 0) {
                 rate *= SOAKED_HOT_MULT;
             }
+        }
+        // Optional Dehydration integration: amplify ambient-driven rate when dehydrated
+        if (DehydrationCompat.isPlayerDehydrated(player)) {
+            rate *= 1.4;
         }
         return rate;
     }
