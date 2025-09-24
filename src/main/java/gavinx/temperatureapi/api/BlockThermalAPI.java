@@ -8,6 +8,7 @@ import net.minecraft.block.TrapdoorBlock;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import net.minecraft.util.math.Direction;
 import net.minecraft.world.RaycastContext;
 import net.minecraft.world.World;
 
@@ -62,17 +63,22 @@ public final class BlockThermalAPI {
         public final OcclusionMode occlusion;
         public final int dropoffBlocks; // 0 = static (no dropoff), else clamp [0,15]
         public final FalloffCurve curve;
+        public final Direction face; // optional: directional emission face; null = omnidirectional
 
-        /** Default: FLOOD_FILL occlusion, cosine dropoff of 7 (clamped). */
+        /** Default: FLOOD_FILL occlusion, cosine dropoff of 7 (clamped), omnidirectional. */
         public ThermalSource(double deltaC, int range) {
-            this(deltaC, range, OcclusionMode.FLOOD_FILL, 7, FalloffCurve.COSINE);
+            this(deltaC, range, OcclusionMode.FLOOD_FILL, 7, FalloffCurve.COSINE, null);
         }
-        /** Set occlusion; default cosine dropoff of 7 (clamped). */
+        /** Set occlusion; default cosine dropoff of 7 (clamped), omnidirectional. */
         public ThermalSource(double deltaC, int range, OcclusionMode occlusion) {
-            this(deltaC, range, occlusion, 7, FalloffCurve.COSINE);
+            this(deltaC, range, occlusion, 7, FalloffCurve.COSINE, null);
         }
-        /** Full control; dropoffBlocks=0 disables dropoff. */
+        /** Full control; dropoffBlocks=0 disables dropoff; omnidirectional. */
         public ThermalSource(double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks, FalloffCurve curve) {
+            this(deltaC, range, occlusion, dropoffBlocks, curve, null);
+        }
+        /** Full control + directional emission. */
+        public ThermalSource(double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks, FalloffCurve curve, Direction face) {
             this.deltaC = deltaC;
             this.range = Math.max(0, range);
             this.occlusion = occlusion == null ? OcclusionMode.FLOOD_FILL : occlusion;
@@ -80,14 +86,15 @@ public final class BlockThermalAPI {
             if (d > 15) d = 15;
             this.dropoffBlocks = d;
             this.curve = curve == null ? FalloffCurve.COSINE : curve;
+            this.face = face; // null -> all directions
         }
         /** Convenience: create a static source (no dropoff), keeping default occlusion. */
         public static ThermalSource staticSource(double deltaC, int range) {
-            return new ThermalSource(deltaC, range, OcclusionMode.FLOOD_FILL, 0, FalloffCurve.COSINE);
+            return new ThermalSource(deltaC, range, OcclusionMode.FLOOD_FILL, 0, FalloffCurve.COSINE, null);
         }
         /** Total influence radius including any dropoff zone. */
         public int influenceRadius() { return range + dropoffBlocks; }
-        @Override public String toString() { return "ThermalSource{" + deltaC + "C, r=" + range + ", occ=" + occlusion + ", drop=" + dropoffBlocks + ", curve=" + curve + "}"; }
+        @Override public String toString() { return "ThermalSource{" + deltaC + "C, r=" + range + ", occ=" + occlusion + ", drop=" + dropoffBlocks + ", curve=" + curve + ", face=" + (face == null ? "omni" : face.asString()) + "}"; }
     }
 
     /** Provider for dynamic sources based on world/blockstate. Return null for no effect. */
@@ -127,7 +134,34 @@ public final class BlockThermalAPI {
     /** Register a constant thermal source with explicit dropoff and occlusion. Set dropoffBlocks=0 for static. */
     public static void register(Block block, double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks) {
         Objects.requireNonNull(block, "block");
-        ThermalSource ts = new ThermalSource(deltaC, range, occlusion, dropoffBlocks, FalloffCurve.COSINE);
+        ThermalSource ts = new ThermalSource(deltaC, range, occlusion, dropoffBlocks, FalloffCurve.COSINE, null);
+        SIMPLE.put(block, ts);
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
+    }
+
+    /** Register a constant thermal source with directional emission (single face). */
+    public static void register(Block block, double deltaC, int range, Direction face) {
+        Objects.requireNonNull(block, "block");
+        ThermalSource ts = new ThermalSource(deltaC, range, OcclusionMode.FLOOD_FILL, 7, FalloffCurve.COSINE, face);
+        SIMPLE.put(block, ts);
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
+    }
+
+    /** Register a constant thermal source with occlusion and directional emission. */
+    public static void register(Block block, double deltaC, int range, OcclusionMode occlusion, Direction face) {
+        Objects.requireNonNull(block, "block");
+        ThermalSource ts = new ThermalSource(deltaC, range, occlusion, 7, FalloffCurve.COSINE, face);
+        SIMPLE.put(block, ts);
+        int influence = ts.influenceRadius();
+        if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
+    }
+
+    /** Register a constant thermal source with occlusion, dropoff, and directional emission. */
+    public static void register(Block block, double deltaC, int range, OcclusionMode occlusion, int dropoffBlocks, Direction face) {
+        Objects.requireNonNull(block, "block");
+        ThermalSource ts = new ThermalSource(deltaC, range, occlusion, dropoffBlocks, FalloffCurve.COSINE, face);
         SIMPLE.put(block, ts);
         int influence = ts.influenceRadius();
         if (influence > MAX_SOURCE_RANGE) MAX_SOURCE_RANGE = influence;
@@ -184,6 +218,16 @@ public final class BlockThermalAPI {
                     // Distance check (Euclidean quick reject)
                     double euclid = atPos.toCenterPos().distanceTo(bp.toCenterPos());
                     if (euclid > budget + 0.5) continue;
+
+                    // Directional emission cull: only affect targets on the chosen face's half-space
+                    if (ts.face != null && !bp.equals(atPos)) {
+                        Vec3d src = bp.toCenterPos();
+                        Vec3d tgt = atPos.toCenterPos();
+                        Vec3d diff = tgt.subtract(src);
+                        Direction f = ts.face;
+                        double dot = diff.x * f.getOffsetX() + diff.y * f.getOffsetY() + diff.z * f.getOffsetZ();
+                        if (dot <= 0.0) continue;
+                    }
 
                     double contrib = 0.0;
                     if (ts.occlusion == OcclusionMode.FLOOD_FILL) {
