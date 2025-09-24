@@ -236,7 +236,13 @@ public final class BlockThermalAPI {
 
                     double contrib = 0.0;
                     if (ts.occlusion == OcclusionMode.FLOOD_FILL) {
-                        int steps = FloodFill.stepsTo(world, bp, atPos, budget);
+                        int steps;
+                        if (ts.face != null) {
+                            // Require path to exit through the specified face
+                            steps = FloodFill.stepsToViaFace(world, bp, atPos, budget, ts.face);
+                        } else {
+                            steps = FloodFill.stepsTo(world, bp, atPos, budget);
+                        }
                         if (steps < 0) continue; // unreachable
                         if (steps <= ts.range) {
                             contrib = ts.deltaC;
@@ -346,6 +352,23 @@ public final class BlockThermalAPI {
             return dist == null ? -1 : dist;
         }
 
+        static int stepsToViaFace(World world, BlockPos source, BlockPos target, int budget, Direction face) {
+            if (source.equals(target)) return 0;
+            int manhattan = Math.abs(target.getX() - source.getX()) + Math.abs(target.getY() - source.getY()) + Math.abs(target.getZ() - source.getZ());
+            if (manhattan > budget) return -1;
+
+            Map<Long, FFEntry> bySource = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
+            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getId() << 48));
+            long now = world.getTime();
+            FFEntry e = bySource.get(key);
+            if (e == null || (now - e.tick) > TTL_TICKS) {
+                e = computeViaFace(world, source, budget, face);
+                bySource.put(key, e);
+            }
+            Integer dist = e.distances.get(target.asLong());
+            return dist == null ? -1 : dist;
+        }
+
         private static FFEntry compute(World world, BlockPos source, int budget) {
             java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
             java.util.HashSet<Long> visited = new java.util.HashSet<>();
@@ -358,6 +381,39 @@ public final class BlockThermalAPI {
             while (!q.isEmpty()) {
                 Node n = q.poll();
                 if (n.dist >= budget) continue; // no remaining budget
+                for (var dir : net.minecraft.util.math.Direction.values()) {
+                    BlockPos np = n.pos.offset(dir);
+                    long npLong = np.asLong();
+                    if (visited.contains(npLong)) continue;
+                    BlockState st = world.getBlockState(np);
+                    if (!isPassable(world, np, st)) continue;
+                    visited.add(npLong);
+                    distances.put(npLong, n.dist + 1);
+                    q.add(new Node(np, n.dist + 1));
+                }
+            }
+            return new FFEntry(world.getTime(), budget, distances);
+        }
+
+        private static FFEntry computeViaFace(World world, BlockPos source, int budget, Direction face) {
+            java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
+            java.util.HashSet<Long> visited = new java.util.HashSet<>();
+            java.util.HashMap<Long, Integer> distances = new java.util.HashMap<>();
+
+            visited.add(source.asLong());
+            distances.put(source.asLong(), 0);
+
+            // Seed only the specified face direction from the source
+            BlockPos first = source.offset(face);
+            if (isPassable(world, first, world.getBlockState(first))) {
+                q.add(new Node(first, 1));
+                visited.add(first.asLong());
+                distances.put(first.asLong(), 1);
+            }
+
+            while (!q.isEmpty()) {
+                Node n = q.poll();
+                if (n.dist >= budget) continue;
                 for (var dir : net.minecraft.util.math.Direction.values()) {
                     BlockPos np = n.pos.offset(dir);
                     long npLong = np.asLong();
