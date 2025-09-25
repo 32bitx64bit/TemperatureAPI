@@ -7,7 +7,6 @@ import net.minecraft.nbt.NbtCompound;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * TemperatureResistanceAPI
@@ -15,31 +14,30 @@ import java.util.Objects;
  * Provides utilities for computing a player's effective heat/cold resistance and
  * a simple registration point for other mods to contribute custom sources.
  *
- * Resistance model:
- * - Heat resistance tiers: 1..5
- * - Cold resistance tiers: -1..-5
- * - Tier magnitudes (both directions):
- *   1 -> 2°C, 2 -> 4°C, 3 -> 8°C, 4 -> 12°C, 5 -> 16°C
+ * New resistance model (tiers-based):
+ * - Items may declare resistance via a single NBT string key: "tempapi_resistance"
+ * - Format supports one or both directions, e.g.: "heat:3" or "heat:3,cold:2"
+ * - Accepted directions (case-insensitive): "heat" and "cold"
+ * - Accepted tiers: 1..6 (each tier = 2°C)
+ *   - heat: expands the hot side of the comfort band by +2°C per tier
+ *   - cold: expands the cold side of the comfort band by 2°C per tier (effectively lowers comfort min by 2°C per tier)
  *
- * The total heat resistance increases the comfort MAX; the total cold resistance increases
- * comfort in the cold direction (lowers the comfort MIN by that number of degrees).
+ * Resistance totals feed into BodyTemperatureAPI by widening the comfort band
+ *   comfortMin = COMFORT_MIN_C - totalColdC
+ *   comfortMax = COMFORT_MAX_C + totalHeatC
  *
- * Mods can:
- * - Add NBT keys on ItemStacks: "tempapi_heat_tier" (1..5) and/or "tempapi_cold_tier" (-1..-5)
- *   on armor, held items, or other carried items.
- * - Register a provider via registerProvider to supply dynamic resistances (e.g., trinkets/baubles).
+ * Mods can also register a provider via registerProvider to supply dynamic resistances (e.g., trinkets/baubles).
  */
 public final class TemperatureResistanceAPI {
 
     private TemperatureResistanceAPI() {}
 
-    // NBT keys that items can use to declare tiers
-    public static final String NBT_HEAT_TIER = "tempapi_heat_tier"; // 1..5
-    public static final String NBT_COLD_TIER = "tempapi_cold_tier"; // -1..-5
+    // New single NBT key for declaring resistances on an ItemStack
+    public static final String NBT_RESISTANCE = "tempapi_resistance"; // e.g., "heat:3,cold:2"
 
     // Optional global caps (per direction). Mods can ignore these by calling tierToDegrees directly.
-    public static final double DEFAULT_MAX_HEAT_RESIST_C = 40.0; // up to tier 5
-    public static final double DEFAULT_MAX_COLD_RESIST_C = 40.0; // up to tier -5
+    public static final double DEFAULT_MAX_HEAT_RESIST_C = 48.0; // tiers up to 6 -> 12°C per source
+    public static final double DEFAULT_MAX_COLD_RESIST_C = 48.0; // tiers up to 6 -> 12°C per source
 
     /** Encapsulates resistance in degrees Celsius for both directions. */
     public static final class Resistance {
@@ -75,19 +73,23 @@ public final class TemperatureResistanceAPI {
         double cold = 0.0;
 
         // Built-in: standard equipment slots
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.HEAD));
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.CHEST));
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.LEGS));
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.FEET));
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.MAINHAND));
-        heat += stackHeatC(player.getEquippedStack(EquipmentSlot.OFFHAND));
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.HEAD)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.HEAD)).coldC;
 
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.HEAD));
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.CHEST));
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.LEGS));
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.FEET));
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.MAINHAND));
-        cold += stackColdC(player.getEquippedStack(EquipmentSlot.OFFHAND));
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.CHEST)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.CHEST)).coldC;
+
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.LEGS)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.LEGS)).coldC;
+
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.FEET)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.FEET)).coldC;
+
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.MAINHAND)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.MAINHAND)).coldC;
+
+        heat += stackResistance(player.getEquippedStack(EquipmentSlot.OFFHAND)).heatC;
+        cold += stackResistance(player.getEquippedStack(EquipmentSlot.OFFHAND)).coldC;
 
         // External providers (e.g. trinkets)
         for (ResistanceProvider rp : PROVIDERS) {
@@ -106,44 +108,65 @@ public final class TemperatureResistanceAPI {
         return new Resistance(heat, cold);
     }
 
-    /** Convert a tier value to degrees C (absolute magnitude). Accepts 1..5 or -1..-5. */
+    /** Convert a tier value to degrees C (absolute magnitude). Accepts 1..6. */
     public static double tierToDegrees(int tier) {
         int abs = Math.abs(tier);
-        return switch (abs) {
-            case 1 -> 2.0;
-            case 2 -> 4.0;
-            case 3 -> 6.0;
-            case 4 -> 8.0;
-            case 5 -> 10.0;
-            default -> 0.0;
-        };
+        return (abs >= 1 && abs <= 6) ? abs * 2.0 : 0.0;
     }
 
-    /** Read heat resistance from an ItemStack via NBT tier. */
+    /** Parse both heat and cold resistance from an ItemStack's NBT. */
+    public static Resistance stackResistance(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return new Resistance(0.0, 0.0);
+        NbtCompound tag = stack.getNbt();
+        if (tag == null || !tag.contains(NBT_RESISTANCE)) return new Resistance(0.0, 0.0);
+        String spec;
+        try {
+            spec = tag.getString(NBT_RESISTANCE);
+        } catch (Throwable t) {
+            return new Resistance(0.0, 0.0);
+        }
+        if (spec == null) return new Resistance(0.0, 0.0);
+        spec = spec.trim();
+        if (spec.isEmpty()) return new Resistance(0.0, 0.0);
+
+        double heat = 0.0;
+        double cold = 0.0;
+
+        // Allow comma, semicolon, or whitespace separated entries
+        String[] parts = spec.split("[\\s,;]+");
+        for (String p : parts) {
+            if (p == null) continue;
+            String s = p.trim();
+            if (s.isEmpty()) continue;
+            int colon = s.indexOf(':');
+            if (colon <= 0 || colon >= s.length() - 1) continue;
+            String key = s.substring(0, colon).trim().toLowerCase();
+            String val = s.substring(colon + 1).trim();
+            int tier;
+            try {
+                tier = Integer.parseInt(val);
+            } catch (NumberFormatException nfe) {
+                continue;
+            }
+            if (tier < 1) tier = 1;
+            if (tier > 6) tier = 6;
+            double deg = tierToDegrees(tier);
+            if ("heat".equals(key)) {
+                heat += deg;
+            } else if ("cold".equals(key)) {
+                cold += deg; // expands cold comfort by this many degrees (BodyTemperatureAPI subtracts this)
+            }
+        }
+        return new Resistance(heat, cold);
+    }
+
+    /** Legacy convenience for callers expecting directional reads (now parses the unified key). */
     public static double stackHeatC(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return 0.0;
-        NbtCompound tag = stack.getNbt();
-        if (tag == null) return 0.0;
-        int tier = 0;
-        try {
-            if (tag.contains(NBT_HEAT_TIER)) tier = tag.getInt(NBT_HEAT_TIER);
-        } catch (Throwable ignored) {}
-        if (tier < 0) tier = 0; // heat uses positive tiers only
-        if (tier > 5) tier = 5;
-        return tierToDegrees(tier);
+        return stackResistance(stack).heatC;
     }
 
-    /** Read cold resistance from an ItemStack via NBT tier. */
+    /** Legacy convenience for callers expecting directional reads (now parses the unified key). */
     public static double stackColdC(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return 0.0;
-        NbtCompound tag = stack.getNbt();
-        if (tag == null) return 0.0;
-        int tier = 0;
-        try {
-            if (tag.contains(NBT_COLD_TIER)) tier = tag.getInt(NBT_COLD_TIER);
-        } catch (Throwable ignored) {}
-        if (tier > 0) tier = -tier; // cold expects negative; ensure sign
-        if (tier < -5) tier = -5;
-        return tierToDegrees(tier);
+        return stackResistance(stack).coldC;
     }
 }
