@@ -2,6 +2,7 @@ package gavinx.temperatureapi.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.builder.ArgumentBuilder;
 import com.mojang.brigadier.context.CommandContext;
 import gavinx.temperatureapi.api.HumidityAPI;
@@ -11,6 +12,8 @@ import gavinx.temperatureapi.api.SeasonsAPI;
 import gavinx.temperatureapi.api.SoakedAPI;
 import gavinx.temperatureapi.api.biome.BiomeAPI;
 import net.minecraft.command.argument.BlockPosArgumentType;
+import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -38,7 +41,14 @@ public final class DebugCommands {
                         .then(argument("pos", BlockPosArgumentType.blockPos())
                             .executes(ctx -> executeTemp(ctx, getUnitArg(ctx), BlockPosArgumentType.getLoadedBlockPos(ctx, "pos"))))))
                 .then(literal("resistance")
-                    .executes(ctx -> executeResistance(ctx)))
+                    .executes(ctx -> executeResistance(ctx))
+                    .then(literal("set").then(argument("tier", IntegerArgumentType.integer(1, 6))
+                        .then(argument("type", StringArgumentType.word())
+                            .executes(ctx -> executeResistanceSet(ctx,
+                                IntegerArgumentType.getInteger(ctx, "tier"),
+                                StringArgumentType.getString(ctx, "type")
+                            )))))
+                )
                 .then(literal("humidity")
                     .executes(ctx -> executeHumidity(ctx, null))
                     .then(argument("pos", BlockPosArgumentType.blockPos())
@@ -136,6 +146,53 @@ public final class DebugCommands {
         if (player == null) return 0;
         gavinx.temperatureapi.api.TemperatureResistanceAPI.Resistance r = gavinx.temperatureapi.api.TemperatureResistanceAPI.computeTotal(player);
         src.sendFeedback(() -> Text.literal("Resistance: +" + r.heatC + "°C heat, +" + r.coldC + "°C cold"), false);
+        return 1;
+    }
+
+    private static int executeResistanceSet(CommandContext<ServerCommandSource> ctx, int tier, String type) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        ItemStack held = player.getMainHandStack();
+        if (held == null || held.isEmpty()) {
+            src.sendError(Text.literal("Hold an item in your main hand to set resistance."));
+            return 0;
+        }
+        String t = type == null ? "" : type.trim().toLowerCase();
+        boolean isHeat = t.equals("heat") || t.equals("hot") || t.equals("warm");
+        boolean isCold = t.equals("cold") || t.equals("cool") || t.equals("chill");
+        if (!isHeat && !isCold) {
+            src.sendError(Text.literal("Type must be 'heat' or 'cold'."));
+            return 0;
+        }
+        // Read existing resistance and convert to tiers
+        gavinx.temperatureapi.api.TemperatureResistanceAPI.Resistance existing = gavinx.temperatureapi.api.TemperatureResistanceAPI.stackResistance(held);
+        int heatTier = (int)Math.round(existing.heatC / 2.0);
+        int coldTier = (int)Math.round(existing.coldC / 2.0);
+        heatTier = Math.max(0, Math.min(6, heatTier));
+        coldTier = Math.max(0, Math.min(6, coldTier));
+
+        // Update the selected direction
+        if (isHeat) heatTier = tier;
+        if (isCold) coldTier = tier;
+
+        // Build the canonical spec string
+        StringBuilder sb = new StringBuilder();
+        if (heatTier > 0) sb.append("heat:").append(heatTier);
+        if (coldTier > 0) {
+            if (sb.length() > 0) sb.append(",");
+            sb.append("cold:").append(coldTier);
+        }
+        NbtCompound tag = held.getOrCreateNbt();
+        if (sb.length() == 0) {
+            // Remove key if both are zero
+            tag.remove(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE);
+        } else {
+            tag.putString(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE, sb.toString());
+        }
+        held.setNbt(tag);
+        String feedback = sb.length() == 0 ? "Removed temp resistance from held item" : ("Set temp resistance: " + sb);
+        src.sendFeedback(() -> Text.literal(feedback), false);
         return 1;
     }
 

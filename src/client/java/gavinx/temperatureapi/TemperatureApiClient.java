@@ -4,6 +4,7 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.util.Identifier;
 import gavinx.temperatureapi.client.DiurnalClientState;
+import gavinx.temperatureapi.client.TooltipHandler;
 
 public class TemperatureApiClient implements ClientModInitializer {
     @Override
@@ -15,5 +16,8 @@ public class TemperatureApiClient implements ClientModInitializer {
             double m = buf.readDouble();
             client.execute(() -> DiurnalClientState.put(dim, dayIndex, M, m));
         });
+
+        // Register standardized tooltip for temperature resistance
+        TooltipHandler.register();
     }
 }

@@ -32,6 +32,10 @@ public final class TemperatureResistanceAPI {
 
     private TemperatureResistanceAPI() {}
 
+    // Control whether the automatic tooltip is shown for items declaring temp resistance (default: true)
+    public static volatile boolean AUTO_TOOLTIPS_ENABLED = true;
+    public static void setAutoTooltipsEnabled(boolean enabled) { AUTO_TOOLTIPS_ENABLED = enabled; }
+
     // New single NBT key for declaring resistances on an ItemStack
     public static final String NBT_RESISTANCE = "tempapi_resistance"; // e.g., "heat:3,cold:2"
 
