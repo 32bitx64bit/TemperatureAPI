@@ -75,6 +75,27 @@ public final class BlockThermalAPI {
     }
 
     /**
+     * Direction-aware variant: require the path to the outdoors to begin by exiting through the given face.
+     * Useful for directional emitters mounted in walls so that outdoor air behind the block does not count
+     * when the emission is into the room.
+     */
+    public static boolean isOutside(World world, BlockPos source, Direction face) {
+        if (world == null || source == null || face == null) return false;
+        if (!world.getDimension().hasSkyLight()) return false;
+        return stepsToOutside(world, source, 32, face) >= 0;
+    }
+
+    /**
+     * Direction-aware steps-to-outside. Returns the minimum number of passable steps to reach outdoors,
+     * but only counting paths that begin by exiting the source through the specified face.
+     */
+    public static int stepsToOutside(World world, BlockPos source, int budget, Direction face) {
+        if (world == null || source == null || face == null) return -1;
+        if (!world.getDimension().hasSkyLight()) return -1;
+        return Exposure.stepsToOutsideViaFace(world, source, Math.max(0, budget), face);
+    }
+
+    /**
      * Outdoor exposure factor in [0,1], where 1 means directly outdoors (0 steps),
      * 0 means no outdoor path found within the budget. Scales linearly with the
      * minimum steps to outside relative to the budget.
@@ -82,6 +103,18 @@ public final class BlockThermalAPI {
     public static double outdoorExposure(World world, BlockPos source, int budget) {
         if (world == null || source == null || !world.getDimension().hasSkyLight()) return 0.0;
         int steps = stepsToOutside(world, source, budget);
+        if (steps < 0) return 0.0;
+        if (steps == 0) return 1.0;
+        double t = 1.0 - Math.min(1.0, steps / (double) Math.max(1, budget));
+        return Math.max(0.0, Math.min(1.0, t));
+    }
+
+    /**
+     * Direction-aware outdoor exposure in [0,1]. Only considers paths that begin by exiting through the face.
+     */
+    public static double outdoorExposure(World world, BlockPos source, int budget, Direction face) {
+        if (world == null || source == null || face == null || !world.getDimension().hasSkyLight()) return 0.0;
+        int steps = stepsToOutside(world, source, budget, face);
         if (steps < 0) return 0.0;
         if (steps == 0) return 1.0;
         double t = 1.0 - Math.min(1.0, steps / (double) Math.max(1, budget));
@@ -494,6 +527,19 @@ public final class BlockThermalAPI {
             return steps;
         }
 
+        static int stepsToOutsideViaFace(World world, BlockPos source, int budget, Direction face) {
+            Map<Long, Entry> byWorld = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
+            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getId() << 48));
+            long now = world.getTime();
+            Entry e = byWorld.get(key);
+            if (e != null && (now - e.tick) <= TTL_TICKS) {
+                return e.steps;
+            }
+            int steps = computeViaFace(world, source, budget, face);
+            byWorld.put(key, new Entry(now, steps));
+            return steps;
+        }
+
         private static int compute(World world, BlockPos source, int budget) {
             if (isFullySealed(world, source)) return -1;
             java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
@@ -513,6 +559,35 @@ public final class BlockThermalAPI {
                 q.add(new Node(np, 1));
                 visited.add(np.asLong());
             }
+
+            while (!q.isEmpty()) {
+                Node n = q.poll();
+                if (hasPassableSkyColumn(world, n.pos)) {
+                    return n.dist;
+                }
+                if (n.dist >= budget) continue;
+                for (Direction d : Direction.values()) {
+                    BlockPos np = n.pos.offset(d);
+                    long npLong = np.asLong();
+                    if (visited.contains(npLong)) continue;
+                    BlockState st = world.getBlockState(np);
+                    if (!isPassable(world, np, st)) continue;
+                    visited.add(npLong);
+                    q.add(new Node(np, n.dist + 1));
+                }
+            }
+            return -1;
+        }
+
+        private static int computeViaFace(World world, BlockPos source, int budget, Direction face) {
+            // Seed only the specified face direction from the source
+            BlockPos first = source.offset(face);
+            if (!isPassable(world, first, world.getBlockState(first))) return -1;
+
+            java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
+            java.util.HashSet<Long> visited = new java.util.HashSet<>();
+            q.add(new Node(first, 1));
+            visited.add(first.asLong());
 
             while (!q.isEmpty()) {
                 Node n = q.poll();
