@@ -45,6 +45,49 @@ public final class BlockThermalAPI {
 
     private BlockThermalAPI() {}
 
+    /**
+     * Determine if a thermal-emitting block position is effectively outside.
+     * A position is considered outside if there exists a passable path (using the same
+     * passability rules as the FLOOD_FILL occlusion model) from the source or any adjacent
+     * passable cell to an open sky column.
+     *
+     * Behavior notes:
+     * - Glass (solid collision) above will count as indoors; open fences/doors count as outdoors.
+     * - Leaves and other blocks with collision shapes are not passable and will count as indoors.
+     * - In dimensions without skylight (Nether/End), returns false.
+     * - Internally cached for ~80 ticks per world+pos+budget.
+     */
+    public static boolean isOutside(World world, BlockPos source) {
+        if (world == null || source == null) return false;
+        if (!world.getDimension().hasSkyLight()) return false;
+        return stepsToOutside(world, source, 32) >= 0;
+    }
+
+    /**
+     * Like isOutside, but returns the minimum passable-steps distance to the outdoors (open sky).
+     * Returns -1 if no outdoor path is found within the provided budget.
+     * Use this if you want to scale effects by how far indoors/outdoors a source is.
+     */
+    public static int stepsToOutside(World world, BlockPos source, int budget) {
+        if (world == null || source == null) return -1;
+        if (!world.getDimension().hasSkyLight()) return -1;
+        return Exposure.stepsToOutside(world, source, Math.max(0, budget));
+    }
+
+    /**
+     * Outdoor exposure factor in [0,1], where 1 means directly outdoors (0 steps),
+     * 0 means no outdoor path found within the budget. Scales linearly with the
+     * minimum steps to outside relative to the budget.
+     */
+    public static double outdoorExposure(World world, BlockPos source, int budget) {
+        if (world == null || source == null || !world.getDimension().hasSkyLight()) return 0.0;
+        int steps = stepsToOutside(world, source, budget);
+        if (steps < 0) return 0.0;
+        if (steps == 0) return 1.0;
+        double t = 1.0 - Math.min(1.0, steps / (double) Math.max(1, budget));
+        return Math.max(0.0, Math.min(1.0, t));
+    }
+
     /** Occlusion model used to determine if a target position can be affected by a source. */
     public enum OcclusionMode {
         LINE_OF_SIGHT, // straight raycast; fast
@@ -430,6 +473,84 @@ public final class BlockThermalAPI {
 
         private record Node(BlockPos pos, int dist) {}
         private record FFEntry(long tick, int budget, java.util.HashMap<Long, Integer> distances) {}
+    }
+
+    // --- Outdoor exposure search and cache ---
+
+    private static final class Exposure {
+        private static final long TTL_TICKS = 80L;
+        private static final Map<Cache.WorldKey, Map<Long, Entry>> CACHE = new ConcurrentHashMap<>();
+
+        static int stepsToOutside(World world, BlockPos source, int budget) {
+            Map<Long, Entry> byWorld = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
+            long key = (source.asLong() ^ ((long) budget << 32));
+            long now = world.getTime();
+            Entry e = byWorld.get(key);
+            if (e != null && (now - e.tick) <= TTL_TICKS) {
+                return e.steps;
+            }
+            int steps = compute(world, source, budget);
+            byWorld.put(key, new Entry(now, steps));
+            return steps;
+        }
+
+        private static int compute(World world, BlockPos source, int budget) {
+            if (isFullySealed(world, source)) return -1;
+            java.util.ArrayDeque<Node> q = new java.util.ArrayDeque<>();
+            java.util.HashSet<Long> visited = new java.util.HashSet<>();
+
+            BlockState srcState = world.getBlockState(source);
+            boolean srcPass = isPassable(world, source, srcState);
+            if (srcPass) {
+                q.add(new Node(source, 0));
+                visited.add(source.asLong());
+            }
+            for (Direction d : Direction.values()) {
+                BlockPos np = source.offset(d);
+                if (visited.contains(np.asLong())) continue;
+                BlockState st = world.getBlockState(np);
+                if (!isPassable(world, np, st)) continue;
+                q.add(new Node(np, 1));
+                visited.add(np.asLong());
+            }
+
+            while (!q.isEmpty()) {
+                Node n = q.poll();
+                if (hasPassableSkyColumn(world, n.pos)) {
+                    return n.dist;
+                }
+                if (n.dist >= budget) continue;
+                for (Direction d : Direction.values()) {
+                    BlockPos np = n.pos.offset(d);
+                    long npLong = np.asLong();
+                    if (visited.contains(npLong)) continue;
+                    BlockState st = world.getBlockState(np);
+                    if (!isPassable(world, np, st)) continue;
+                    visited.add(npLong);
+                    q.add(new Node(np, n.dist + 1));
+                }
+            }
+            return -1;
+        }
+
+        private record Node(BlockPos pos, int dist) {}
+        private record Entry(long tick, int steps) {}
+    }
+
+    /**
+     * True if the vertical column above pos up to build height is passable per occlusion rules.
+     * Uses world.isSkyVisible as a quick early-out, then validates passability to align with
+     * FLOOD_FILL behavior (e.g., leaves are passable; glass is not).
+     */
+    private static boolean hasPassableSkyColumn(World world, BlockPos pos) {
+        try { if (!world.isSkyVisible(pos)) return false; } catch (Throwable ignored) {}
+        int top = world.getTopY();
+        for (int y = pos.getY(); y < top; y++) {
+            BlockPos p = new BlockPos(pos.getX(), y, pos.getZ());
+            BlockState st = world.getBlockState(p);
+            if (!isPassable(world, p, st)) return false;
+        }
+        return true;
     }
 
     private static boolean isPassable(World world, BlockPos pos, BlockState state) {
