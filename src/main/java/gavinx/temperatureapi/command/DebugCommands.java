@@ -30,7 +30,7 @@ public final class DebugCommands {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(
             literal("temperatureapi")
-                .requires(src -> src.hasPermissionLevel(0))
+                .requires(src -> src.hasPermissionLevel(2))
                 .executes(ctx -> executeInfo(ctx, null, null))
                 .then(unitArg().executes(ctx -> executeInfo(ctx, getUnitArg(ctx), null))
                     .then(argument("pos", BlockPosArgumentType.blockPos())
