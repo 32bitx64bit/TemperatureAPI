@@ -33,8 +33,8 @@ public final class BodyTemperatureAPI {
     public static final double COMFORT_MAX_C = 30.0;
 
     // Base passive exchange rates per degree delta beyond comfort band (°C change per second per °C ambient beyond band)
-    private static final double COOL_RATE_PER_DEGREE_PER_SEC = 0.0045; // colder than comfort edge
-    private static final double HEAT_RATE_PER_DEGREE_PER_SEC = 0.0035; // hotter than comfort edge (before humidity boost)
+    private static final double COOL_RATE_PER_DEGREE_PER_SEC = 0.0025; // colder than comfort edge
+    private static final double HEAT_RATE_PER_DEGREE_PER_SEC = 0.0025; // hotter than comfort edge (before humidity boost)
 
     // Humidity boost: for humidity above 50%, multiply heating rate by (1 + HUMIDITY_ACCEL * (hum-50)/50)
     private static final double HUMIDITY_ACCEL = 1.0; // at 100% humidity -> 2.0x heating rate
