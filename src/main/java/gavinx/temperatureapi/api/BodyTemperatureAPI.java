@@ -156,17 +156,13 @@ public final class BodyTemperatureAPI {
             }
         }
 
-        // Conduction: only inside the comfort band, and only to warm toward ambient (no cooling inside).
-        if (!Double.isNaN(currentBodyTempC)) {
-            boolean insideComfort = (ambientC >= comfortMin) && (ambientC <= comfortMax);
-            if (insideComfort && currentBodyTempC < ambientC) {
-                double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
-                rate += conduction;
-            }
+        // Conduction: always warm toward ambient when body is below ambient (applies both inside and outside comfort).
+        if (!Double.isNaN(currentBodyTempC) && currentBodyTempC < ambientC) {
+            double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
+            rate += conduction;
         }
         // Final safety:
         // - If body <= ambient, do not allow net cooling (prevents sinking further below ambient)
-        // - If body >= ambient, do not allow net heating to overshoot upward instantly (still allowed, but rate limited by previous terms)
         if (!Double.isNaN(currentBodyTempC)) {
             if (currentBodyTempC <= ambientC && rate < 0) {
                 rate = 0.0;
