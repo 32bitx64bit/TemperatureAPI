@@ -45,6 +45,10 @@ public final class BodyTemperatureAPI {
     // Conduction toward ambient: proportional term (tuned much lower to avoid rapid tanking)
     private static final double CONDUCTION_RATE_PER_SEC = 0.001; // e.g., 0.001 -> 0.1°C/s for 100°C delta
 
+    // When core temperature is below normal, boost ambient-driven warming so you heat faster until near normal.
+    private static final double LOW_CORE_ACCEL = 2.0; // additional multiplier at max deficit (e.g., up to +2.0x)
+    private static final double LOW_CORE_DEFICIT_CAP_C = 10.0; // degrees below normal at which boost caps
+
     // Wetness modifiers (when soaked)
     private static final double SOAKED_COLD_MULT = 1.8; // colder-than-comfort cooling accelerates
     private static final double SOAKED_HOT_MULT = 0.6;  // hotter-than-comfort heating is reduced
@@ -134,10 +138,10 @@ public final class BodyTemperatureAPI {
             comfortMax += Math.max(0.0, resistance.heatC); // expand hotter comfort
         }
 
-        double rate = 0.0;
+        double ambientTerm = 0.0;
         if (ambientC < comfortMin) {
             double degreesBelow = comfortMin - ambientC; // positive
-            rate += -COOL_RATE_PER_DEGREE_PER_SEC * degreesBelow;
+            ambientTerm += -COOL_RATE_PER_DEGREE_PER_SEC * degreesBelow;
         } else if (ambientC > comfortMax) {
             double degreesAbove = ambientC - comfortMax; // positive
             double heat = HEAT_RATE_PER_DEGREE_PER_SEC * degreesAbove;
@@ -146,21 +150,33 @@ public final class BodyTemperatureAPI {
                 double boost = 1.0 + HUMIDITY_ACCEL * Math.max(0.0, Math.min(1.0, over));
                 heat *= boost;
             }
-            rate += heat;
+            ambientTerm += heat;
         } else {
             // Ambient within comfort band (including resistance-expanded): no ambient-driven heating/cooling.
-            // Only apply gentle homeostasis toward normal body temperature if current body temp is known.
-            if (!Double.isNaN(currentBodyTempC)) {
-                double delta = currentBodyTempC - NORMAL_BODY_TEMP_C; // positive if too hot
-                rate += -RELAX_FRACTION_PER_SEC * delta; // cool if positive, warm if negative
-            }
         }
 
-        // Conduction: always warm toward ambient when body is below ambient (applies both inside and outside comfort).
-        if (!Double.isNaN(currentBodyTempC) && currentBodyTempC < ambientC) {
-            double conduction = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
-            rate += conduction;
+        double homeostasisTerm = 0.0;
+        if (!Double.isNaN(currentBodyTempC)) {
+            double delta = currentBodyTempC - NORMAL_BODY_TEMP_C; // positive if too hot
+            homeostasisTerm = -RELAX_FRACTION_PER_SEC * delta; // cool if positive, warm if negative
         }
+
+        double conductionTerm = 0.0;
+        if (!Double.isNaN(currentBodyTempC) && currentBodyTempC < ambientC) {
+            conductionTerm = CONDUCTION_RATE_PER_SEC * (ambientC - currentBodyTempC);
+        }
+
+        // If the body is below normal, accelerate ambient-driven warming (not homeostasis),
+        // so heating is faster when cold and naturally slows as core approaches normal.
+        if (!Double.isNaN(currentBodyTempC) && currentBodyTempC < NORMAL_BODY_TEMP_C) {
+            double deficit = NORMAL_BODY_TEMP_C - currentBodyTempC;
+            double t = Math.min(1.0, deficit / LOW_CORE_DEFICIT_CAP_C);
+            double factor = 1.0 + LOW_CORE_ACCEL * t; // 1..(1+LOW_CORE_ACCEL)
+            if (ambientTerm > 0) ambientTerm *= factor;
+            if (conductionTerm > 0) conductionTerm *= factor;
+        }
+
+        double rate = ambientTerm + conductionTerm + homeostasisTerm;
         // Final safety:
         // - If body <= ambient, do not allow net cooling (prevents sinking further below ambient)
         if (!Double.isNaN(currentBodyTempC)) {
