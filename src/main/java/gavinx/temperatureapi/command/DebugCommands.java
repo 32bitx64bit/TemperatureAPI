@@ -106,7 +106,8 @@ public final class DebugCommands {
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
         World world = player.getWorld();
-        BlockPos pos = posArg != null ? posArg : player.getBlockPos();
+        BlockPos pos = posArg != null ? posArg : gavinx.temperatureapi.api.TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
 
         String out = (unit == null)
             ? TemperatureAPI.getTemperature(world, pos, Unit.CELSIUS) + " / " + TemperatureAPI.getTemperature(world, pos, Unit.FAHRENHEIT)
@@ -135,7 +136,9 @@ public final class DebugCommands {
         if (player == null) return 0;
         World world = player.getWorld();
         String season = SeasonsAPI.getCurrentSeason(world);
-        double offset = gavinx.temperatureapi.api.SeasonsAPI.temperatureOffsetC(world, player.getBlockPos());
+        BlockPos pos = gavinx.temperatureapi.api.TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        double offset = gavinx.temperatureapi.api.SeasonsAPI.temperatureOffsetC(world, pos);
         src.sendFeedback(() -> Text.literal("Season: " + season + " (offset: " + String.format("%.1f", offset) + "°C)"), false);
         return 1;
     }

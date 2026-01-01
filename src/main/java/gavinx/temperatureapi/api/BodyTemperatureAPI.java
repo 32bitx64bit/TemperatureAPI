@@ -68,7 +68,8 @@ public final class BodyTemperatureAPI {
     public static double computeRateCPerSecond(PlayerEntity player) {
         if (player == null) return 0.0;
         World world = player.getWorld();
-        BlockPos pos = player.getBlockPos();
+        BlockPos pos = TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
         double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
         if (Double.isNaN(ambientC)) return 0.0;
         int humidity = HumidityAPI.getHumidityValue(world, pos);
@@ -96,7 +97,8 @@ public final class BodyTemperatureAPI {
     public static double computeRateCPerSecond(PlayerEntity player, double currentBodyTempC) {
         if (player == null) return 0.0;
         World world = player.getWorld();
-        BlockPos pos = player.getBlockPos();
+        BlockPos pos = TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
         double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
         if (Double.isNaN(ambientC)) return 0.0;
         int humidity = HumidityAPI.getHumidityValue(world, pos);
@@ -219,7 +221,9 @@ public final class BodyTemperatureAPI {
         double dt = Math.max(0.0, dtSeconds);
         double next = currentBodyTempC + rate * dt;
         // Clamp not to dip below ambient
-        double ambientC = TemperatureAPI.getTemperatureCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        double ambientC = TemperatureAPI.getTemperatureCelsius(player.getWorld(), pos);
         if (!Double.isNaN(ambientC) && currentBodyTempC >= ambientC && next < ambientC) {
             next = ambientC;
         }

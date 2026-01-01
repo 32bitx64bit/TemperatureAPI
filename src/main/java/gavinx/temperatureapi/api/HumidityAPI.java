@@ -32,7 +32,9 @@ public final class HumidityAPI {
     /** Get humidity at the player's current position as a formatted string (e.g., "40%"). */
     public static String getHumidity(PlayerEntity player) {
         if (player == null) return "N/A";
-        return getHumidity(player.getWorld(), player.getBlockPos());
+        BlockPos pos = TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getHumidity(player.getWorld(), pos);
     }
 
     // ----- Public numeric helpers (0..100) -----
@@ -46,7 +48,9 @@ public final class HumidityAPI {
     /** Get humidity at the player's current position as an integer percentage (0..100). */
     public static int getHumidityValue(PlayerEntity player) {
         if (player == null) return -1;
-        return getHumidityValue(player.getWorld(), player.getBlockPos());
+        BlockPos pos = TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getHumidityValue(player.getWorld(), pos);
     }
 
     // ----- Internal resolution -----

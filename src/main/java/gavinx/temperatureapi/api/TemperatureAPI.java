@@ -24,6 +24,23 @@ public final class TemperatureAPI {
         CELSIUS, FAHRENHEIT
     }
 
+    /**
+     * Returns a block position representative of the space the player occupies.
+     *
+     * Rationale: {@link net.minecraft.entity.Entity#getBlockPos()} is derived from the entity's
+     * feet Y, which can land inside a non-air block when standing on partial blocks (slabs, etc.).
+     * Sampling from the bounding-box center avoids misclassification that can cause block thermal
+     * emitters to be ignored.
+     */
+    public static BlockPos getSamplePos(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return null;
+        var bb = player.getBoundingBox();
+        double x = (bb.minX + bb.maxX) * 0.5;
+        double y = (bb.minY + bb.maxY) * 0.5;
+        double z = (bb.minZ + bb.maxZ) * 0.5;
+        return BlockPos.ofFloored(x, y, z);
+    }
+
     // --- Component accessors (biome/season/day-night only; excludes block sources) ---
 
     /** Base biome temperature in Celsius (without seasonal/diurnal or block sources). NaN on null inputs. */
@@ -56,19 +73,27 @@ public final class TemperatureAPI {
     /** Player overloads for component accessors. */
     public static double getBiomeBaseCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
-        return getBiomeBaseCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getBiomeBaseCelsius(player.getWorld(), pos);
     }
     public static double getSeasonalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
-        return getSeasonalOffsetCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getSeasonalOffsetCelsius(player.getWorld(), pos);
     }
     public static double getDiurnalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
-        return getDiurnalOffsetCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getDiurnalOffsetCelsius(player.getWorld(), pos);
     }
     public static double getEnvironmentCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
-        return getEnvironmentCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getEnvironmentCelsius(player.getWorld(), pos);
     }
 
     /**
@@ -113,7 +138,9 @@ public final class TemperatureAPI {
         if (player == null || unit == null) {
             return "N/A";
         }
-        return getTemperature(player.getWorld(), player.getBlockPos(), unit);
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getTemperature(player.getWorld(), pos, unit);
     }
 
     /**
@@ -147,7 +174,9 @@ public final class TemperatureAPI {
      */
     public static double getTemperatureCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
-        return getTemperatureCelsius(player.getWorld(), player.getBlockPos());
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getTemperatureCelsius(player.getWorld(), pos);
     }
 
     // --- Internal helpers ---
