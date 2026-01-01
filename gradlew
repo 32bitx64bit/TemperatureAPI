@@ -113,6 +113,56 @@ esac
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
+# --- Project guard: ensure Gradle runs on Java 17 ---
+#
+# This project targets Minecraft 1.20.1 (Java 17). More importantly, this Gradle
+# wrapper (Gradle 8.1.1) cannot run on very new JDKs (e.g. Java 25) due to
+# Groovy/ASM limitations, which manifests as:
+#   "Unsupported class file major version 69"
+#
+# We prefer Java 17 for the Gradle runtime. If JAVA_HOME points elsewhere, or
+# the system java is too new, we try to auto-select a Java 17 installation from
+# common Linux locations.
+
+JAVA_REQUIRED_MAJOR=17
+
+java_major() {
+    # Usage: java_major /path/to/java
+    # Prints major version (e.g. 17, 21, 25) or empty on failure.
+    _java_cmd=$1
+    _ver=$($_java_cmd -version 2>&1 | sed -n '1p')
+    # Typical: "openjdk version \"17.0.10\"" or "openjdk version \"25.0.1\""
+    _maj=$(echo "$_ver" | sed -n 's/.*version "\([0-9][0-9]*\)\..*/\1/p')
+    if [ -z "$_maj" ] ; then
+        _maj=$(echo "$_ver" | sed -n 's/.*version "\([0-9][0-9]*\)".*/\1/p')
+    fi
+    # Legacy: 1.8 -> treat as 8
+    if [ "$_maj" = "1" ] ; then
+        _maj=$(echo "$_ver" | sed -n 's/.*version "1\.\([0-9][0-9]*\)\..*/\1/p')
+    fi
+    echo "$_maj"
+}
+
+autoselect_java17_home() {
+    for _cand in \
+        /usr/lib/jvm/java-17* \
+        /usr/lib/jvm/jdk-17* \
+        /usr/lib/jvm/*temurin*17* \
+        /usr/lib/jvm/*17* \
+        "$HOME/.sdkman/candidates/java/17"* \
+        "$HOME/.sdkman/candidates/java"/17* \
+    ; do
+        [ -d "$_cand" ] || continue
+        [ -x "$_cand/bin/java" ] || continue
+        _m=$(java_major "$_cand/bin/java")
+        if [ "$_m" = "$JAVA_REQUIRED_MAJOR" ] ; then
+            echo "$_cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then
@@ -134,6 +184,29 @@ else
 
 Please set the JAVA_HOME variable in your environment to match the
 location of your Java installation."
+fi
+
+# If we're not running on the required Java major, try to find a Java 17 home.
+_current_major=$(java_major "$JAVACMD")
+if [ "$_current_major" != "$JAVA_REQUIRED_MAJOR" ] ; then
+        _java17_home=$(autoselect_java17_home || true)
+        if [ -n "$_java17_home" ] ; then
+                JAVA_HOME=$_java17_home
+                JAVACMD=$JAVA_HOME/bin/java
+                _current_major=$(java_major "$JAVACMD")
+        fi
+fi
+
+if [ "$_current_major" != "$JAVA_REQUIRED_MAJOR" ] ; then
+        die "ERROR: This project requires Java $JAVA_REQUIRED_MAJOR to run Gradle (current: ${_current_major:-unknown}).
+
+Fix options:
+    - Install a Java $JAVA_REQUIRED_MAJOR JDK and set JAVA_HOME to it, or
+    - Ensure /usr/lib/jvm contains a java-17* installation.
+
+Example (fish):
+    set -Ux JAVA_HOME /usr/lib/jvm/java-17-openjdk
+    ./gradlew build"
 fi
 
 # Increase the maximum file descriptors if we can.
