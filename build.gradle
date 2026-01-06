@@ -3,6 +3,37 @@ plugins {
 	id 'maven-publish'
 }
 
+if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_17)) {
+	throw new GradleException(
+		"TemperatureAPI must be built with Java 17+ (found ${System.getProperty('java.version')}). " +
+		"Set JAVA_HOME to a JDK 17+ (or configure your CI builder to use Java 17+) and try again."
+	)
+}
+
+def useJdk17Toolchain = providers.gradleProperty('useJdk17Toolchain')
+	.map { it.toBoolean() }
+	.orElse(false)
+
+if (useJdk17Toolchain.get()) {
+	java {
+		toolchain {
+			languageVersion = JavaLanguageVersion.of(17)
+		}
+	}
+
+	tasks.withType(Test).configureEach {
+		javaLauncher = javaToolchains.launcherFor {
+			languageVersion = JavaLanguageVersion.of(17)
+		}
+	}
+
+	tasks.withType(JavaExec).configureEach {
+		javaLauncher = javaToolchains.launcherFor {
+			languageVersion = JavaLanguageVersion.of(17)
+		}
+	}
+}
+
 version = project.mod_version
 group = project.maven_group
 
@@ -57,31 +88,11 @@ tasks.withType(JavaCompile).configureEach {
 	it.options.release = 17
 }
 
-// Ensure tests and JavaExec tasks run on Java 17 regardless of the system JDK
-tasks.withType(Test).configureEach {
-	javaLauncher = javaToolchains.launcherFor {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
-}
-
-tasks.withType(JavaExec).configureEach {
-	javaLauncher = javaToolchains.launcherFor {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
-}
-
 java {
 	// Loom will automatically attach sourcesJar to a RemapSourcesJar task and to the "build" task
 	// if it is present.
 	// If you remove this line, sources will not be generated.
 	withSourcesJar()
-
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
-
-	sourceCompatibility = JavaVersion.VERSION_17
-	targetCompatibility = JavaVersion.VERSION_17
 }
 
 jar {
