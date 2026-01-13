@@ -377,13 +377,13 @@ public final class BlockThermalAPI {
         Vec3d end = to.toCenterPos();
 
         try {
-            // Entity is optional in modern mappings; pass null safely
+            // Disambiguate between (.., Entity) and (.., ShapeContext) overloads
             RaycastContext ctx = new RaycastContext(
                     start,
                     end,
                     RaycastContext.ShapeType.COLLIDER,
                     RaycastContext.FluidHandling.ANY,
-                    null
+                net.minecraft.block.ShapeContext.absent()
             );
             var hit = world.raycast(ctx);
             if (hit == null) return false;
@@ -434,7 +434,7 @@ public final class BlockThermalAPI {
             if (manhattan > budget) return -1;
 
             Map<Long, FFEntry> bySource = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
-            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getId() << 48));
+            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getIndex() << 48));
             long now = world.getTime();
             FFEntry e = bySource.get(key);
             if (e == null || (now - e.tick) > TTL_TICKS) {
@@ -529,7 +529,7 @@ public final class BlockThermalAPI {
 
         static int stepsToOutsideViaFace(World world, BlockPos source, int budget, Direction face) {
             Map<Long, Entry> byWorld = CACHE.computeIfAbsent(Cache.WorldKey.of(world), k -> new ConcurrentHashMap<>());
-            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getId() << 48));
+            long key = (source.asLong() ^ ((long) budget << 32) ^ ((long) face.getIndex() << 48));
             long now = world.getTime();
             Entry e = byWorld.get(key);
             if (e != null && (now - e.tick) <= TTL_TICKS) {
@@ -619,7 +619,7 @@ public final class BlockThermalAPI {
      */
     private static boolean hasPassableSkyColumn(World world, BlockPos pos) {
         try { if (!world.isSkyVisible(pos)) return false; } catch (Throwable ignored) {}
-        int top = world.getTopY();
+        int top = world.getTopYInclusive() + 1;
         for (int y = pos.getY(); y < top; y++) {
             BlockPos p = new BlockPos(pos.getX(), y, pos.getZ());
             BlockState st = world.getBlockState(p);

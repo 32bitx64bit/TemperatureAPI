@@ -1,13 +1,9 @@
 package gavinx.temperatureapi.net;
 
 import gavinx.temperatureapi.TemperatureApi;
-import gavinx.temperatureapi.api.DayNightAPI;
-import io.netty.buffer.Unpooled;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
@@ -17,7 +13,7 @@ import java.util.Map;
 
 /** Handles server->client sync of diurnal parameters (M/m) per world per day. */
 public final class DiurnalSync {
-    public static final Identifier CHANNEL = new Identifier("temperatureapi", "diurnal_sync");
+    public static final Identifier CHANNEL = Identifier.of("temperatureapi", "diurnal_sync");
 
     private static final Map<Identifier, Long> lastSentDayByDim = new HashMap<>();
 
@@ -27,7 +23,7 @@ public final class DiurnalSync {
         // Send on player join
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> {
             ServerPlayerEntity player = handler.player;
-            ServerWorld world = (ServerWorld) player.getWorld();
+            ServerWorld world = (ServerWorld) player.getEntityWorld();
             sendForWorldToPlayer(world, player);
         });
 
@@ -56,12 +52,8 @@ public final class DiurnalSync {
         // Compute deterministic daily parameters on server (uses world seed)
         DayNightParams params = computeParams(world, dayIndex);
 
-        PacketByteBuf buf = new PacketByteBuf(Unpooled.buffer());
-        buf.writeString(world.getRegistryKey().getValue().toString());
-        buf.writeLong(dayIndex);
-        buf.writeDouble(params.M);
-        buf.writeDouble(params.m);
-        ServerPlayNetworking.send(player, CHANNEL, buf);
+        DiurnalSyncPayload payload = new DiurnalSyncPayload(world.getRegistryKey().getValue(), dayIndex, params.M, params.m);
+        ServerPlayNetworking.send(player, payload);
     }
 
     private static DayNightParams computeParams(ServerWorld world, long dayIndex) {

@@ -12,8 +12,9 @@ import gavinx.temperatureapi.api.SeasonsAPI;
 import gavinx.temperatureapi.api.SoakedAPI;
 import gavinx.temperatureapi.api.biome.BiomeAPI;
 import net.minecraft.command.argument.BlockPosArgumentType;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.NbtComponent;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -30,7 +31,7 @@ public final class DebugCommands {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
         dispatcher.register(
             literal("temperatureapi")
-                .requires(src -> src.hasPermissionLevel(2))
+                .requires(CommandManager.requirePermissionLevel(CommandManager.GAMEMASTERS_CHECK))
                 .executes(ctx -> executeInfo(ctx, null, null))
                 .then(unitArg().executes(ctx -> executeInfo(ctx, getUnitArg(ctx), null))
                     .then(argument("pos", BlockPosArgumentType.blockPos())
@@ -88,7 +89,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = posArg != null ? posArg : player.getBlockPos();
 
         String tempOut = (unit == null)
@@ -105,7 +106,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = posArg != null ? posArg : gavinx.temperatureapi.api.TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
 
@@ -122,7 +123,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = posArg != null ? posArg : player.getBlockPos();
 
         String out = HumidityAPI.getHumidity(world, pos);
@@ -134,7 +135,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         String season = SeasonsAPI.getCurrentSeason(world);
         BlockPos pos = gavinx.temperatureapi.api.TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
@@ -186,14 +187,14 @@ public final class DebugCommands {
             if (sb.length() > 0) sb.append(",");
             sb.append("cold:").append(coldTier);
         }
-        NbtCompound tag = held.getOrCreateNbt();
-        if (sb.length() == 0) {
-            // Remove key if both are zero
-            tag.remove(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE);
-        } else {
-            tag.putString(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE, sb.toString());
-        }
-        held.setNbt(tag);
+        NbtComponent.set(DataComponentTypes.CUSTOM_DATA, held, nbt -> {
+            if (sb.length() == 0) {
+                // Remove key if both are zero
+                nbt.remove(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE);
+            } else {
+                nbt.putString(gavinx.temperatureapi.api.TemperatureResistanceAPI.NBT_RESISTANCE, sb.toString());
+            }
+        });
         String feedback = sb.length() == 0 ? "Removed temp resistance from held item" : ("Set temp resistance: " + sb);
         src.sendFeedback(() -> Text.literal(feedback), false);
         return 1;
@@ -239,7 +240,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = posArg != null ? posArg : player.getBlockPos();
         double off = gavinx.temperatureapi.api.BlockThermalAPI.temperatureOffsetC(world, pos);
         src.sendFeedback(() -> Text.literal("Block thermal offset: " + String.format("%.2f", off) + "°C"), false);
@@ -250,7 +251,7 @@ public final class DebugCommands {
         ServerCommandSource src = ctx.getSource();
         ServerPlayerEntity player = getPlayerOrFeedback(src);
         if (player == null) return 0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = player.getBlockPos();
         var biomeEntry = world.getBiome(pos);
         String regId = biomeEntry.getKey().map(k -> k.getValue().toString()).orElse("unknown");

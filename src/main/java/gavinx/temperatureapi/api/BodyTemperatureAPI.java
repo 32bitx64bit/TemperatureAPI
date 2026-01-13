@@ -67,7 +67,7 @@ public final class BodyTemperatureAPI {
     /** Compute the passive body temperature rate-of-change (°C per second) at the player's current position. */
     public static double computeRateCPerSecond(PlayerEntity player) {
         if (player == null) return 0.0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
         double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
@@ -96,7 +96,7 @@ public final class BodyTemperatureAPI {
     /** Compute the passive body temperature rate-of-change (°C per second) at the player's current position using current body temp for homeostasis. */
     public static double computeRateCPerSecond(PlayerEntity player, double currentBodyTempC) {
         if (player == null) return 0.0;
-        World world = player.getWorld();
+        World world = player.getEntityWorld();
         BlockPos pos = TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
         double ambientC = TemperatureAPI.getTemperatureCelsius(world, pos);
@@ -223,7 +223,7 @@ public final class BodyTemperatureAPI {
         // Clamp not to dip below ambient
         BlockPos pos = TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        double ambientC = TemperatureAPI.getTemperatureCelsius(player.getWorld(), pos);
+        double ambientC = TemperatureAPI.getTemperatureCelsius(player.getEntityWorld(), pos);
         if (!Double.isNaN(ambientC) && currentBodyTempC >= ambientC && next < ambientC) {
             next = ambientC;
         }

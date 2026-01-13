@@ -18,7 +18,7 @@ public final class SoakedAPI {
 
     /** Returns true if the player is currently soaked. Client-side queries return false. */
     public static boolean isSoaked(PlayerEntity player) {
-        if (player == null || player.getWorld().isClient()) return false;
+        if (player == null || player.getEntityWorld().isClient()) return false;
         if (player instanceof ServerPlayerEntity sp) {
             return SoakedState.isSoaked(sp);
         }
@@ -27,7 +27,7 @@ public final class SoakedAPI {
 
     /** Remaining soaked seconds (0 if not soaked). Client-side returns 0. */
     public static double getSoakedSeconds(PlayerEntity player) {
-        if (player == null || player.getWorld().isClient()) return 0.0;
+        if (player == null || player.getEntityWorld().isClient()) return 0.0;
         if (player instanceof ServerPlayerEntity sp) {
             return SoakedState.getSeconds(sp);
         }

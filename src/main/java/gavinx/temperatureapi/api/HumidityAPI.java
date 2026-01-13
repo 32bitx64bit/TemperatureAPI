@@ -34,7 +34,7 @@ public final class HumidityAPI {
         if (player == null) return "N/A";
         BlockPos pos = TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getHumidity(player.getWorld(), pos);
+        return getHumidity(player.getEntityWorld(), pos);
     }
 
     // ----- Public numeric helpers (0..100) -----
@@ -50,7 +50,7 @@ public final class HumidityAPI {
         if (player == null) return -1;
         BlockPos pos = TemperatureAPI.getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getHumidityValue(player.getWorld(), pos);
+        return getHumidityValue(player.getEntityWorld(), pos);
     }
 
     // ----- Internal resolution -----
@@ -69,7 +69,7 @@ public final class HumidityAPI {
 
         // Fallback: derive from precipitation type (coarse estimate)
         Biome biome = entry.value();
-        Biome.Precipitation p = biome.getPrecipitation(pos);
+        Biome.Precipitation p = biome.getPrecipitation(pos, world.getSeaLevel());
         int percent;
         if (p == Biome.Precipitation.NONE) {
             percent = 10; // generally dry

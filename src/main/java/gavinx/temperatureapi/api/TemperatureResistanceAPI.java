@@ -2,6 +2,8 @@ package gavinx.temperatureapi.api;
 
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.NbtComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 
@@ -121,11 +123,13 @@ public final class TemperatureResistanceAPI {
     /** Parse both heat and cold resistance from an ItemStack's NBT. */
     public static Resistance stackResistance(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return new Resistance(0.0, 0.0);
-        NbtCompound tag = stack.getNbt();
-        if (tag == null || !tag.contains(NBT_RESISTANCE)) return new Resistance(0.0, 0.0);
+        NbtComponent customData = stack.getOrDefault(DataComponentTypes.CUSTOM_DATA, NbtComponent.DEFAULT);
+        if (customData == null || customData.isEmpty()) return new Resistance(0.0, 0.0);
+        NbtCompound tag = customData.copyNbt();
+        if (!tag.contains(NBT_RESISTANCE)) return new Resistance(0.0, 0.0);
         String spec;
         try {
-            spec = tag.getString(NBT_RESISTANCE);
+            spec = tag.getString(NBT_RESISTANCE).orElse(null);
         } catch (Throwable t) {
             return new Resistance(0.0, 0.0);
         }

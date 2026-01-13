@@ -2,8 +2,9 @@ package gavinx.temperatureapi.client;
 
 import gavinx.temperatureapi.api.TemperatureResistanceAPI;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
-import net.minecraft.client.item.TooltipContext;
+import net.minecraft.item.Item.TooltipContext;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.tooltip.TooltipType;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
@@ -29,7 +30,7 @@ public final class TooltipHandler {
         ItemTooltipCallback.EVENT.register(TooltipHandler::onTooltip);
     }
 
-    private static void onTooltip(ItemStack stack, TooltipContext context, List<Text> lines) {
+    private static void onTooltip(ItemStack stack, TooltipContext context, TooltipType type, List<Text> lines) {
         if (stack == null || stack.isEmpty()) return;
         if (!TemperatureResistanceAPI.AUTO_TOOLTIPS_ENABLED) return;
         // Parse resistance from the item

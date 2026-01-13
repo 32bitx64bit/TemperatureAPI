@@ -61,7 +61,7 @@ public final class SoakedState {
         }
 
         // Trigger B: standing under open sky while it's precipitating (rain or snow)
-        var world = player.getWorld();
+        var world = player.getEntityWorld();
         if (world.isRaining()) {
             BlockPos pos = player.getBlockPos().up();
             if (world.isSkyVisible(pos)) {

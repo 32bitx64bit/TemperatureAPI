@@ -1,35 +1,36 @@
 plugins {
-	id 'fabric-loom' version '1.2-SNAPSHOT'
+	id 'fabric-loom' version '1.14-SNAPSHOT'
 	id 'maven-publish'
 }
 
-if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_17)) {
+if (!JavaVersion.current().isCompatibleWith(JavaVersion.VERSION_21)) {
 	throw new GradleException(
-		"TemperatureAPI must be built with Java 17+ (found ${System.getProperty('java.version')}). " +
-		"Set JAVA_HOME to a JDK 17+ (or configure your CI builder to use Java 17+) and try again."
+		"TemperatureAPI must be built with Java 21+ (found ${System.getProperty('java.version')}). " +
+		"Set JAVA_HOME to a JDK 21+ (or configure your CI builder to use Java 21+) and try again."
 	)
 }
 
-def useJdk17Toolchain = providers.gradleProperty('useJdk17Toolchain')
+def useJdkToolchain = providers.gradleProperty('useJdk21Toolchain')
+	.orElse(providers.gradleProperty('useJdk17Toolchain'))
 	.map { it.toBoolean() }
 	.orElse(false)
 
-if (useJdk17Toolchain.get()) {
+if (useJdkToolchain.get()) {
 	java {
 		toolchain {
-			languageVersion = JavaLanguageVersion.of(17)
+			languageVersion = JavaLanguageVersion.of(21)
 		}
 	}
 
 	tasks.withType(Test).configureEach {
 		javaLauncher = javaToolchains.launcherFor {
-			languageVersion = JavaLanguageVersion.of(17)
+			languageVersion = JavaLanguageVersion.of(21)
 		}
 	}
 
 	tasks.withType(JavaExec).configureEach {
 		javaLauncher = javaToolchains.launcherFor {
-			languageVersion = JavaLanguageVersion.of(17)
+			languageVersion = JavaLanguageVersion.of(21)
 		}
 	}
 }
@@ -85,7 +86,7 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-	it.options.release = 17
+	it.options.release = 21
 }
 
 java {
@@ -97,7 +98,8 @@ java {
 
 jar {
 	from("LICENSE") {
-		rename { "${it}_${project.archivesBaseName}"}
+		def archivesName = project.extensions.getByType(org.gradle.api.plugins.BasePluginExtension).archivesName.get()
+		rename { "${it}_${archivesName}" }
 	}
 }
 

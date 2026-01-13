@@ -75,25 +75,25 @@ public final class TemperatureAPI {
         if (player == null) return Double.NaN;
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getBiomeBaseCelsius(player.getWorld(), pos);
+        return getBiomeBaseCelsius(player.getEntityWorld(), pos);
     }
     public static double getSeasonalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getSeasonalOffsetCelsius(player.getWorld(), pos);
+        return getSeasonalOffsetCelsius(player.getEntityWorld(), pos);
     }
     public static double getDiurnalOffsetCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getDiurnalOffsetCelsius(player.getWorld(), pos);
+        return getDiurnalOffsetCelsius(player.getEntityWorld(), pos);
     }
     public static double getEnvironmentCelsius(net.minecraft.entity.player.PlayerEntity player) {
         if (player == null) return Double.NaN;
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getEnvironmentCelsius(player.getWorld(), pos);
+        return getEnvironmentCelsius(player.getEntityWorld(), pos);
     }
 
     /**
@@ -140,7 +140,7 @@ public final class TemperatureAPI {
         }
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getTemperature(player.getWorld(), pos, unit);
+        return getTemperature(player.getEntityWorld(), pos, unit);
     }
 
     /**
@@ -176,7 +176,7 @@ public final class TemperatureAPI {
         if (player == null) return Double.NaN;
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
-        return getTemperatureCelsius(player.getWorld(), pos);
+        return getTemperatureCelsius(player.getEntityWorld(), pos);
     }
 
     // --- Internal helpers ---

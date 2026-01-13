@@ -5,8 +5,8 @@ import gavinx.temperatureapi.command.DebugCommands;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import gavinx.temperatureapi.net.DiurnalSync;
+import gavinx.temperatureapi.net.DiurnalSyncPayload;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +26,7 @@ public class TemperatureApi implements ModInitializer {
         });
 
         // Networking: server->client diurnal sync
+        DiurnalSyncPayload.register();
         DiurnalSync.registerServer();
 
         // Per-tick body temperature update (server side)

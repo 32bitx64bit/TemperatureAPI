@@ -1,7 +1,5 @@
 package gavinx.temperatureapi.client;
 
-import net.minecraft.util.Identifier;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
