@@ -1,6 +1,7 @@
 package gavinx.temperatureapi;
 
 import gavinx.temperatureapi.api.biome.BiomeAPI;
+import gavinx.temperatureapi.api.VanillaInsulationDefaults;
 import gavinx.temperatureapi.command.DebugCommands;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -19,6 +20,10 @@ public class TemperatureApi implements ModInitializer {
         BiomeAPI.load();
         LOGGER.info("Temperature API initialized.");
         LOGGER.info("Loaded biome config from {}", BiomeAPI.getConfigPath());
+
+        // Install built-in per-block insulation defaults (holey/half blocks insulate less).
+        // Lowest priority: mods override any block via BlockInsulationAPI.register(...).
+        VanillaInsulationDefaults.install();
 
         // Register debug commands (/temperatureapi, /temperatureapi temp, /temperatureapi humidity)
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> {

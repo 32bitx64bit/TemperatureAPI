@@ -295,14 +295,21 @@ public final class DebugCommands {
 
         double alpha = room.effectiveAlpha();
         double k = gavinx.temperatureapi.api.IndoorClimateAPI.passiveRate(alpha);
-        String halfLife = (k <= 0.0)
-            ? "inf (frozen)"
-            : String.format("%.0f ticks (%.1f min)", Math.log(2.0) / k, (Math.log(2.0) / k) / 1200.0);
+        String behavior;
+        if (alpha < 0.0) {
+            behavior = String.format("amplifying outdoor swings %.2fx (conductive)",
+                gavinx.temperatureapi.api.IndoorClimateAPI.amplificationGain(alpha));
+        } else if (k <= 0.0) {
+            behavior = "frozen (no drift)";
+        } else {
+            double hl = Math.log(2.0) / k;
+            behavior = String.format("half-life %.0f ticks (%.1f min)", hl, hl / 1200.0);
+        }
 
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("Room: enclosure %.0f%%, avgInsulation %.2f, alpha %.2f, volume %d cells\n",
             room.enclosure * 100.0, room.avgInsulation, alpha, room.volume));
-        sb.append(String.format("Lag half-life: %s\n", halfLife));
+        sb.append(String.format("Behavior: %s\n", behavior));
         sb.append(String.format("Indoor (lagged): %.1f°C  vs  Outdoor (raw): %.1f°C",
             effectiveEnv, outdoorEnv));
         if (!room.setpoints.isEmpty()) {

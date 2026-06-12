@@ -17,9 +17,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * Lightweight registry for per-block thermal insulation, used by the indoor-climate model
  * to decide how strongly a structure resists the outside temperature.
  *
- * Insulation is a value in [0.0, 1.0]:
- * - 0.0 -> no resistance (interior tracks the outdoors immediately)
- * - 1.0 -> maximal resistance (interior never changes with the outdoors)
+ * Insulation is a value in [-1.0, 1.0]:
+ * - 1.0  -> maximal resistance (interior never changes with the outdoors)
+ * - 0.0  -> no resistance (interior tracks the outdoors immediately)
+ * - &lt;0  -> negative resistance: the block is conductive and makes the interior *overshoot* the
+ *           outdoor swings (hotter by day, colder by night). Useful for solar ovens / cold sinks.
+ *           Metal blocks default to a negative value.
  *
  * Modder usage is intentionally minimal: one call per block.
  * <pre>
@@ -53,15 +56,30 @@ public final class BlockInsulationAPI {
     private static final Map<Block, Double> SIMPLE = new ConcurrentHashMap<>();
     private static final List<Provider> PROVIDERS = new CopyOnWriteArrayList<>();
 
-    /** Register a constant insulation value for a block. Clamped to [0,1]. */
+    // Lowest-priority fallback (built-in vanilla classification). Consulted only after explicit
+    // registrations and normal providers, and before DEFAULT_INSULATION.
+    private static volatile Provider defaultProvider = null;
+
+    /** Register a constant insulation value for a block. Clamped to [-1,1] (negative = conductive). */
     public static void register(Block block, double insulation) {
         Objects.requireNonNull(block, "block");
-        SIMPLE.put(block, clamp01(insulation));
+        SIMPLE.put(block, clampUnit(insulation));
     }
 
     /** Register a dynamic provider, evaluated (in registration order) after the simple registry. */
     public static void register(Provider provider) {
         if (provider != null) PROVIDERS.add(provider);
+    }
+
+    /**
+     * Set the lowest-priority fallback provider, consulted only when no explicit registration or
+     * normal provider has an opinion (and before {@link #DEFAULT_INSULATION}). Used to install the
+     * built-in vanilla block defaults. Mods override any of these per-block via
+     * {@link #register(Block, double)} or with their own {@link #register(Provider)}, both of which
+     * take priority regardless of load order.
+     */
+    public static void setDefaultProvider(Provider provider) {
+        defaultProvider = provider;
     }
 
     /** True if any block-specific insulation has been registered (simple or provider). */
@@ -81,9 +99,16 @@ public final class BlockInsulationAPI {
             for (Provider p : PROVIDERS) {
                 try {
                     Double dyn = p.get(world, pos, state);
-                    if (dyn != null) return clamp01(dyn);
+                    if (dyn != null) return clampUnit(dyn);
                 } catch (Throwable ignored) {}
             }
+        }
+        Provider dp = defaultProvider;
+        if (dp != null) {
+            try {
+                Double dyn = dp.get(world, pos, state);
+                if (dyn != null) return clampUnit(dyn);
+            } catch (Throwable ignored) {}
         }
         return DEFAULT_INSULATION;
     }
@@ -95,22 +120,32 @@ public final class BlockInsulationAPI {
      * steady-state conduction): each in-plane edge neighbor is worth 4 units, each diagonal 1,
      * so a fully-surrounded cell (4 edges + 4 diagonals) reaches connectivity 1.0.
      *
-     * @param base     the block's own insulation in [0,1]
+     * Boost applies only to insulators (base &gt; 0); conductors (base &le; 0) pass through unchanged.
+     *
+     * @param base     the block's own insulation in [-1,1]
      * @param edges    qualifying same-surface edge neighbors present (0..4)
      * @param diagonals qualifying same-surface diagonal neighbors present (0..4)
-     * @return effective insulation = base + (1 - base) * (4*edges + diagonals)/20, clamped to [0,1]
+     * @return effective insulation = base * (1 + ((1/DEFAULT)-1) * (4*edges + diagonals)/20), clamped to [-1,1]
      */
     public static double applyConnectivity(double base, int edges, int diagonals) {
         int e = Math.max(0, Math.min(4, edges));
         int d = Math.max(0, Math.min(4, diagonals));
         double connectivity = (4.0 * e + d) / 20.0; // 0..1
-        double b = clamp01(base);
-        return clamp01(b + (1.0 - b) * connectivity);
+        double b = clampUnit(base);
+        // Conductors / no-insulation (base <= 0) are not boosted: surrounding a metal block with
+        // more metal does not make it insulate, and a wall of fences is still full of holes.
+        if (b <= 0.0) return b;
+        // Multiplicative boost for insulators: the bonus is proportional to the block's own value, so
+        // a default-insulation block reaches 1.0 when fully embedded in a surface while a weak
+        // insulator stays proportionally low. Anchored so DEFAULT_INSULATION hits 1.0 at full
+        // connectivity (identical to the additive form there).
+        double k = (1.0 / DEFAULT_INSULATION) - 1.0;
+        return clampUnit(b * (1.0 + k * connectivity));
     }
 
-    private static double clamp01(double v) {
+    private static double clampUnit(double v) {
         if (Double.isNaN(v)) return 0.0;
-        if (v < 0.0) return 0.0;
+        if (v < -1.0) return -1.0;
         if (v > 1.0) return 1.0;
         return v;
     }

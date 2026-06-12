@@ -48,6 +48,8 @@ public final class IndoorClimateAPI {
     public static final double ALPHA_FROZEN = 0.9995;
     /** Cap on the lag rate for near-zero alpha, so the interior effectively snaps to outdoors. */
     public static final double K_MAX = 10.0;
+    /** Amplification of outdoor swings at full conductivity (alpha = -1). */
+    public static final double AMP_GAIN = 1.5;
 
     /** Reconstruction integration step (1 in-game minute), matching the diurnal quantization. */
     public static final long TICKS_PER_STEP = 1200L;
@@ -71,22 +73,26 @@ public final class IndoorClimateAPI {
         if (room == null || room.outdoor) return outdoorEnvC;
 
         double alpha = room.effectiveAlpha();
-        if (alpha <= 1e-6 && room.setpoints.isEmpty()) return outdoorEnvC;
+        if (Math.abs(alpha) <= 1e-6 && room.setpoints.isEmpty()) return outdoorEnvC;
 
         double k = passiveRate(alpha);
         long now = world.getTime();
 
         synchronized (room) {
             if (!room.indoorInit) {
-                reconstruct(world, room, outdoorEnvC, k, now);
+                reconstruct(world, room, outdoorEnvC, k, alpha, now);
             } else {
-                advance(room, outdoorEnvC, k, now);
+                advance(world, room, outdoorEnvC, k, alpha, now);
             }
             return room.indoorC;
         }
     }
 
-    /** Passive relaxation rate (per tick) toward the outdoors for a given effective insulation alpha. */
+    /**
+     * Passive relaxation rate (per tick) toward the (possibly amplified) outdoor target.
+     * Positive alpha lags with a half-life; alpha &le; 0 (no insulation or conductive) snaps quickly,
+     * with conductivity expressed through {@link #amplificationGain} rather than the rate.
+     */
     public static double passiveRate(double alpha) {
         if (alpha >= ALPHA_FROZEN) return 0.0;
         if (alpha <= 0.0) return K_MAX;
@@ -95,20 +101,39 @@ public final class IndoorClimateAPI {
         return Math.log(2.0) / halfLife;
     }
 
+    /**
+     * Gain applied to the outdoor deviation from the daily mean. 1.0 for insulators (alpha &ge; 0);
+     * for conductive structures (alpha &lt; 0) it grows to {@code 1 + AMP_GAIN} at alpha = -1, so the
+     * interior overshoots the outdoor swing (hotter by day, colder by night).
+     */
+    public static double amplificationGain(double alpha) {
+        if (alpha >= 0.0) return 1.0;
+        return 1.0 + AMP_GAIN * Math.min(1.0, -alpha);
+    }
+
+    /** The outdoor target the interior is driven toward, amplifying the deviation from the daily mean. */
+    private static double amplifiedOutdoor(World world, double outdoorEnvC, double gain) {
+        if (gain == 1.0) return outdoorEnvC;
+        double staticPart = outdoorEnvC - DayNightAPI.temperatureOffsetC(world, world.getTimeOfDay());
+        return staticPart + gain * (outdoorEnvC - staticPart);
+    }
+
     // --- Integration ---
 
-    private static void advance(Room room, double outdoorNow, double k, long now) {
+    private static void advance(World world, Room room, double outdoorEnvC, double k, double alpha, long now) {
         long dt = now - room.lastTick;
         if (dt <= 0) { room.lastTick = now; return; }
-        room.indoorC = step(room.indoorC, outdoorNow, k, room.setpoints, dt);
+        double target = amplifiedOutdoor(world, outdoorEnvC, amplificationGain(alpha));
+        room.indoorC = step(room.indoorC, target, k, room.setpoints, dt);
         room.lastTick = now;
     }
 
-    private static void reconstruct(World world, Room room, double outdoorNow, double k, long now) {
+    private static void reconstruct(World world, Room room, double outdoorNow, double k, double alpha, long now) {
         long nowTOD = world.getTimeOfDay();
         double curDiurnal = DayNightAPI.temperatureOffsetC(world, nowTOD);
         // Static (biome + seasonal) component, derived from the supplied current outdoor value.
         double staticPart = outdoorNow - curDiurnal;
+        double gain = amplificationGain(alpha);
 
         // While unloaded, only persistent emitters were running.
         List<ActiveSetpoint> persistent = new ArrayList<>();
@@ -131,7 +156,8 @@ public final class IndoorClimateAPI {
             long dt = stepEnd - t;
             long mid = t + dt / 2;
             long pastTOD = nowTOD - (now - mid);
-            double outdoorPast = staticPart + DayNightAPI.temperatureOffsetC(world, pastTOD);
+            // Amplify the past diurnal deviation for conductive structures (gain > 1).
+            double outdoorPast = staticPart + gain * DayNightAPI.temperatureOffsetC(world, pastTOD);
             tin = step(tin, outdoorPast, k, persistent, dt);
             t = stepEnd;
         }
