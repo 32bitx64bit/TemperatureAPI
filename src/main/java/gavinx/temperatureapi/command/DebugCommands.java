@@ -68,6 +68,10 @@ public final class DebugCommands {
                         .executes(ctx -> executeBlockOffset(ctx, BlockPosArgumentType.getLoadedBlockPos(ctx, "pos")))))
                 .then(literal("biome")
                     .executes(ctx -> executeBiome(ctx)))
+                .then(literal("room")
+                    .executes(ctx -> executeRoom(ctx, null))
+                    .then(argument("pos", BlockPosArgumentType.blockPos())
+                        .executes(ctx -> executeRoom(ctx, BlockPosArgumentType.getLoadedBlockPos(ctx, "pos")))))
         );
     }
 
@@ -267,6 +271,48 @@ public final class DebugCommands {
                      ", key: " + (key == null ? "unknown" : key) +
                      ", " + configured +
                      ", configuredEntries=" + regCount + ", defaultEntries=" + defCount;
+        src.sendFeedback(() -> Text.literal(msg), false);
+        return 1;
+    }
+
+    private static int executeRoom(CommandContext<ServerCommandSource> ctx, BlockPos posArg) {
+        ServerCommandSource src = ctx.getSource();
+        ServerPlayerEntity player = getPlayerOrFeedback(src);
+        if (player == null) return 0;
+        World world = player.getWorld();
+        BlockPos pos = posArg != null ? posArg : TemperatureAPI.getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+
+        gavinx.temperatureapi.api.RoomAPI.Room room = gavinx.temperatureapi.api.RoomAPI.get(world, pos);
+        double outdoorEnv = TemperatureAPI.getEnvironmentCelsius(world, pos);
+        double effectiveEnv = TemperatureAPI.getEffectiveEnvironmentCelsius(world, pos);
+
+        if (room == null || room.outdoor) {
+            src.sendFeedback(() -> Text.literal(String.format(
+                "Room: outdoors (enclosure 0%%). Outdoor env: %.1f°C", outdoorEnv)), false);
+            return 1;
+        }
+
+        double alpha = room.effectiveAlpha();
+        double k = gavinx.temperatureapi.api.IndoorClimateAPI.passiveRate(alpha);
+        String halfLife = (k <= 0.0)
+            ? "inf (frozen)"
+            : String.format("%.0f ticks (%.1f min)", Math.log(2.0) / k, (Math.log(2.0) / k) / 1200.0);
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Room: enclosure %.0f%%, avgInsulation %.2f, alpha %.2f, volume %d cells\n",
+            room.enclosure * 100.0, room.avgInsulation, alpha, room.volume));
+        sb.append(String.format("Lag half-life: %s\n", halfLife));
+        sb.append(String.format("Indoor (lagged): %.1f°C  vs  Outdoor (raw): %.1f°C",
+            effectiveEnv, outdoorEnv));
+        if (!room.setpoints.isEmpty()) {
+            sb.append("\nEmitters:");
+            for (var s : room.setpoints) {
+                sb.append(String.format(" [%.1f°C %s p=%.4f%s]",
+                    s.targetC(), s.mode(), s.power(), s.persistent() ? " persistent" : ""));
+            }
+        }
+        String msg = sb.toString();
         src.sendFeedback(() -> Text.literal(msg), false);
         return 1;
     }

@@ -61,13 +61,23 @@ public final class TemperatureAPI {
         return DayNightAPI.temperatureOffsetC(world, pos);
     }
 
-    /** Environment temperature in Celsius = biome base + seasonal + diurnal. Excludes block sources. NaN on null. */
+    /** Raw outdoor environment temperature in Celsius = biome base + seasonal + diurnal. Excludes indoor lag and block sources. NaN on null. */
     public static double getEnvironmentCelsius(World world, BlockPos pos) {
         if (world == null || pos == null) return Double.NaN;
         double base = resolveBiomeBaseCelsius(world, pos);
         double seasonal = SeasonsAPI.temperatureOffsetC(world, pos);
         double diurnal = DayNightAPI.temperatureOffsetC(world, pos);
         return base + seasonal + diurnal;
+    }
+
+    /**
+     * Effective environment temperature in Celsius after indoor insulation lag and thermostatic
+     * emitters, but excluding block thermal hotspots. Equals {@link #getEnvironmentCelsius} when
+     * outdoors. NaN on null inputs.
+     */
+    public static double getEffectiveEnvironmentCelsius(World world, BlockPos pos) {
+        if (world == null || pos == null) return Double.NaN;
+        return IndoorClimateAPI.adjustAmbient(world, pos, getEnvironmentCelsius(world, pos));
     }
 
     /** Player overloads for component accessors. */
@@ -94,6 +104,12 @@ public final class TemperatureAPI {
         BlockPos pos = getSamplePos(player);
         if (pos == null) pos = player.getBlockPos();
         return getEnvironmentCelsius(player.getWorld(), pos);
+    }
+    public static double getEffectiveEnvironmentCelsius(net.minecraft.entity.player.PlayerEntity player) {
+        if (player == null) return Double.NaN;
+        BlockPos pos = getSamplePos(player);
+        if (pos == null) pos = player.getBlockPos();
+        return getEffectiveEnvironmentCelsius(player.getWorld(), pos);
     }
 
     /**
@@ -202,8 +218,14 @@ public final class TemperatureAPI {
         double seasonalOffset = SeasonsAPI.temperatureOffsetC(world, pos);
         // Diurnal adjustment (quantized to 1-minute steps)
         double diurnalOffset = DayNightAPI.temperatureOffsetC(world, pos);
+        // Raw outdoor environment, before any indoor insulation lag.
+        double outdoorEnv = baseC + seasonalOffset + diurnalOffset;
+        // Indoor climate: lag the ambient toward the outdoors based on insulation/enclosure,
+        // and let thermostatic emitters drive the room. Equals outdoorEnv when outdoors.
+        double effectiveEnv = IndoorClimateAPI.adjustAmbient(world, pos, outdoorEnv);
+        // Block thermal sources (campfires, etc.) are local hotspots applied on top, unlagged.
         double blockOffset = BlockThermalAPI.temperatureOffsetC(world, pos);
-        return baseC + seasonalOffset + diurnalOffset + blockOffset;
+        return effectiveEnv + blockOffset;
     }
 
     private static double cToF(double c) {

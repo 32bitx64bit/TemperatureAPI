@@ -1,10 +1,8 @@
 package gavinx.temperatureapi.api;
 
+import gavinx.temperatureapi.api.internal.Occlusion;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
-import net.minecraft.block.DoorBlock;
-import net.minecraft.block.FenceGateBlock;
-import net.minecraft.block.TrapdoorBlock;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
@@ -614,31 +612,14 @@ public final class BlockThermalAPI {
 
     /**
      * True if the vertical column above pos up to build height is passable per occlusion rules.
-     * Uses world.isSkyVisible as a quick early-out, then validates passability to align with
-     * FLOOD_FILL behavior (e.g., leaves are passable; glass is not).
+     * Delegates to the shared {@link Occlusion} helper so room scanning and thermal flow agree.
      */
     private static boolean hasPassableSkyColumn(World world, BlockPos pos) {
-        try { if (!world.isSkyVisible(pos)) return false; } catch (Throwable ignored) {}
-        int top = world.getTopY();
-        for (int y = pos.getY(); y < top; y++) {
-            BlockPos p = new BlockPos(pos.getX(), y, pos.getZ());
-            BlockState st = world.getBlockState(p);
-            if (!isPassable(world, p, st)) return false;
-        }
-        return true;
+        return Occlusion.hasPassableSkyColumn(world, pos);
     }
 
     private static boolean isPassable(World world, BlockPos pos, BlockState state) {
-        if (state.isAir()) return true;
-        try {
-            if (state.getCollisionShape(world, pos).isEmpty()) return true;
-        } catch (Throwable ignored) {}
-        try {
-            if (state.getBlock() instanceof DoorBlock && state.contains(DoorBlock.OPEN) && state.get(DoorBlock.OPEN)) return true;
-            if (state.getBlock() instanceof FenceGateBlock && state.contains(FenceGateBlock.OPEN) && state.get(FenceGateBlock.OPEN)) return true;
-            if (state.getBlock() instanceof TrapdoorBlock && state.contains(TrapdoorBlock.OPEN) && state.get(TrapdoorBlock.OPEN)) return true;
-        } catch (Throwable ignored) {}
-        return false;
+        return Occlusion.isPassable(world, pos, state);
     }
 
     private static double weight(FalloffCurve curve, double t) {
